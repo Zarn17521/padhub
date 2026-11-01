@@ -216,6 +216,15 @@ renderer and audio shut down); PadHub waits for that before starting another
 game. It does not start again in the same launch yet. The module and any build
 containing it stay on your devices, as BlueWake's rules say.
 
+## Legal
+
+PadHub is an unofficial fan project, not affiliated with or endorsed by
+Nintendo. Game and console names are trademarks of their owners and are used
+only to say what PadHub works with. This repository contains no game code,
+game data, keys or firmware. Each game runs from a copy you make yourself
+from a disc or cartridge you own. PadHub is provided as is, without warranty
+of any kind.
+
 ## Credits
 
 PadHub only hosts other people's work: [SunPad](https://github.com/chrissotraidis/sunpad),

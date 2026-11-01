@@ -6,6 +6,14 @@ The Legend of Zelda: The Wind Waker (BlueWake), and the Switch games packed
 with nxnative (Super Mario Bros. Wonder, Animal Crossing: New Horizons) all
 run inside it.
 
+<p align="center">
+  <img src="docs/launcher-landscape.jpg" alt="PadHub's launcher in landscape, with Melee selected between Super Mario Sunshine and The Wind Waker" width="560">
+  <img src="docs/launcher-portrait.jpg" alt="PadHub's launcher on a phone held upright" width="220">
+</p>
+
+<sub>Taken with `-padhubNoBoxArt`. On your device, each card shows the game's
+box art.</sub>
+
 - A carousel of the games' box art over a background that takes the selected
   game's colors, with a launch animation. The box art comes from
   [GameTDB](https://www.gametdb.com) the first time PadHub runs; a picture of
@@ -188,6 +196,8 @@ from its own menu.
 - `-padhubOpen <game> -padhubGameMenuAfter <seconds>` brings up PadHub's menu
   over the game, and `-padhubGameMenuPage controllers` its controller page,
   for screenshots.
+- `-padhubNoBoxArt` draws the cards in their colors without box art, for
+  screenshots to share.
 - `-PadHubNSOControllers NO -SunPadNSOGCEnabled NO -MeleePadNSOGCEnabled NO`
   keeps Bluetooth off, so no permission prompt waits on the screen.
 - PadHub writes `Documents/PadHub.log`; each game keeps its own log in

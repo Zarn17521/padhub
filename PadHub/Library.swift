@@ -110,7 +110,10 @@ final class Library: ObservableObject {
     return support.appendingPathComponent("BoxArt/\(id).jpg")
   }
 
+  /// `-padhubNoBoxArt`: the cards keep their colors and symbols, for
+  /// screenshots without anyone's artwork in them.
   private func loadBoxArt() {
+    guard !ProcessInfo.processInfo.arguments.contains("-padhubNoBoxArt") else { return }
     for game in games where !game.boxArtSources.isEmpty {
       if let image = UIImage(contentsOfFile: Self.boxArtURL(for: game.id).path) {
         boxArt[game.id] = image

@@ -1,3 +1,4 @@
+import CoreImage
 import SwiftUI
 import UIKit
 
@@ -11,6 +12,8 @@ final class Library: ObservableObject {
   /// The player's own pictures, which win over the box art.
   @Published private(set) var covers: [String: UIImage] = [:]
   @Published private(set) var boxArt: [String: UIImage] = [:]
+  /// Scans of the games' discs, for their launch screens.
+  @Published private(set) var discArt: [String: UIImage] = [:]
 
   private let defaults = UserDefaults.standard
   private static let gamesKey = "PadHubGames"
@@ -20,11 +23,13 @@ final class Library: ObservableObject {
     load()
     refreshInstalled()
     loadBoxArt()
+    loadDiscArt()
   }
 
   var visibleGames: [Game] { games.filter { !hidden.contains($0.id) } }
 
   func cover(for game: Game) -> UIImage? { covers[game.id] ?? boxArt[game.id] }
+  func disc(for game: Game) -> UIImage? { discArt[game.id] }
 
   /// A built-in game is installed when this build carries its core and its
   /// module; a game app, when it is on the device. Added games always are.
@@ -131,6 +136,61 @@ final class Library: ObservableObject {
       withAnimation(.easeInOut(duration: 0.5)) { boxArt[game.id] = cover }
       return
     }
+  }
+
+  // MARK: Disc scans, downloaded once, enlarged and kept
+
+  private static func discArtURL(for id: String) -> URL {
+    let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    return support.appendingPathComponent("DiscArt/\(id).png")
+  }
+
+  private func loadDiscArt() {
+    for game in games where !game.discArtSources.isEmpty {
+      if let image = UIImage(contentsOfFile: Self.discArtURL(for: game.id).path) {
+        discArt[game.id] = image
+      } else {
+        Task { await downloadDiscArt(for: game) }
+      }
+    }
+  }
+
+  @MainActor
+  private func downloadDiscArt(for game: Game) async {
+    for source in game.discArtSources {
+      guard let download = try? await URLSession.shared.data(from: source),
+        (download.1 as? HTTPURLResponse)?.statusCode == 200,
+        let scan = UIImage(data: download.0),
+        let disc = Self.enlarged(scan, to: 640),
+        let png = disc.pngData()
+      else { continue }
+      let url = Self.discArtURL(for: game.id)
+      try? FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try? png.write(to: url, options: .atomic)
+      discArt[game.id] = disc
+      return
+    }
+  }
+
+  /// The scans are small: enlarged once with Lanczos and a touch of
+  /// sharpening, they stay smooth on a big screen.
+  private static func enlarged(_ image: UIImage, to side: CGFloat) -> UIImage? {
+    guard let cgImage = image.cgImage, cgImage.width > 0 else { return nil }
+    let scale = side / CGFloat(cgImage.width)
+    guard scale > 1 else { return image }
+    let input = CIImage(cgImage: cgImage)
+    let lanczos = CIFilter(name: "CILanczosScaleTransform")
+    lanczos?.setValue(input, forKey: kCIInputImageKey)
+    lanczos?.setValue(scale, forKey: kCIInputScaleKey)
+    lanczos?.setValue(1.0, forKey: kCIInputAspectRatioKey)
+    let sharpen = CIFilter(name: "CISharpenLuminance")
+    sharpen?.setValue(lanczos?.outputImage, forKey: kCIInputImageKey)
+    sharpen?.setValue(0.5, forKey: kCIInputSharpnessKey)
+    guard let output = sharpen?.outputImage ?? lanczos?.outputImage,
+      let rendered = CIContext().createCGImage(output, from: output.extent.integral)
+    else { return nil }
+    return UIImage(cgImage: rendered)
   }
 
   /// A GameCube sleeve is back, spine and front side by side: the front is its

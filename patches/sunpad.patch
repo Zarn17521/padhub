@@ -2406,10 +2406,10 @@ index 3388740..d2e26e2 100644
      BOOL shouldHide = !_editingLayout && controllerConnected &&
          [SunPadSettings sharedSettings].hideTouchControlsWhenControllerConnected;
 diff --git a/apple/ios/SunPadGameViewController.h b/apple/ios/SunPadGameViewController.h
-index 71b74bd..fb86d24 100644
+index 71b74bd..bec3a4d 100644
 --- a/apple/ios/SunPadGameViewController.h
 +++ b/apple/ios/SunPadGameViewController.h
-@@ -12,6 +12,12 @@ NS_ASSUME_NONNULL_BEGIN
+@@ -12,6 +12,17 @@ NS_ASSUME_NONNULL_BEGIN
  - (void)pauseRuntimeForApplicationLifecycle;
  - (void)resumeRuntimeForApplicationLifecycle;
  
@@ -2419,11 +2419,16 @@ index 71b74bd..fb86d24 100644
 +- (void)stopGame;
 +- (void)restartGame;
 +
++/* Called once on the main thread when the game shows its first frame, or
++ * when it needs the player instead (an error, its game data). A host app
++ * (PadHub) takes down its own launch screen then. Set it before each start. */
++@property(nonatomic, copy, nullable) void (^startupHandler)(void);
++
  @end
  
  NS_ASSUME_NONNULL_END
 diff --git a/apple/ios/SunPadGameViewController.mm b/apple/ios/SunPadGameViewController.mm
-index 0847c07..7ec15e7 100644
+index 0847c07..3b8e316 100644
 --- a/apple/ios/SunPadGameViewController.mm
 +++ b/apple/ios/SunPadGameViewController.mm
 @@ -8,6 +8,7 @@
@@ -2462,7 +2467,30 @@ index 0847c07..7ec15e7 100644
      _brandImageView.contentMode = UIViewContentModeScaleAspectFit;
      _brandImageView.layer.cornerRadius = 12.0;
      _brandImageView.clipsToBounds = YES;
-@@ -549,6 +555,19 @@ - (void)observeControllers {
+@@ -459,6 +465,14 @@ - (void)startFPSMonitor {
+     dispatch_resume(fpsTimer);
+ }
+ 
++// The game is on screen, or waits for the player: once per start (startupHandler).
++- (void)reportStartup {
++    void (^handler)(void) = self.startupHandler;
++    self.startupHandler = nil;
++    if (handler != nil)
++        handler();
++}
++
+ - (void)updateFPSLabel {
+     [self reconcileControllersForReason:@"periodic"];
+     BOOL applicationActive = UIApplication.sharedApplication.applicationState ==
+@@ -469,6 +483,7 @@ - (void)updateFPSLabel {
+         _hasPerformanceUsageBaseline = NO;
+     }
+     if (fps > 0.0) {
++        [self reportStartup];
+         _bootStatusLabel.hidden = YES;
+         _brandImageView.hidden = YES;
+         [_bootActivityIndicator stopAnimating];
+@@ -549,6 +564,19 @@ - (void)observeControllers {
                                                   name:GCControllerDidDisconnectNotification
                                                 object:nil];
      [self reconcileControllersForReason:@"launch"];
@@ -2482,7 +2510,7 @@ index 0847c07..7ec15e7 100644
  }
  
  - (void)controllerDidConnect:(NSNotification *)notification {
-@@ -615,6 +634,9 @@ - (void)publishInputFromController:(GCController *)controller
+@@ -615,6 +643,9 @@ - (void)publishInputFromController:(GCController *)controller
      uintptr_t instance = SunPadControllerInstanceID(controller);
      if (_controllerSlots.SlotFor(instance) != 0)
          return;
@@ -2492,7 +2520,7 @@ index 0847c07..7ec15e7 100644
  
      // Every callback is a complete snapshot. Leaving buttons uninitialized
      // made random button edges overflow the old fixed-size pipe buffer.
-@@ -639,6 +661,7 @@ - (void)publishInputFromController:(GCController *)controller
+@@ -639,6 +670,7 @@ - (void)publishInputFromController:(GCController *)controller
      if (state.triggerL > 30) state.buttons |= SunPadButtonL;
      if (physicalTriggerR > 30) state.buttons |= SunPadButtonR;
      [[SunPadInputMixer sharedMixer] setInputState:state fromTouch:NO];
@@ -2500,7 +2528,7 @@ index 0847c07..7ec15e7 100644
  }
  
  - (void)reconcileControllersForReason:(NSString *)reason {
-@@ -776,7 +799,8 @@ - (void)startGameIfProvisioned {
+@@ -776,7 +808,8 @@ - (void)startGameIfProvisioned {
      _bootStatusLabel.text = @"Preparing runtime…";
      _bootStatusLabel.accessibilityLabel = @"Preparing runtime";
      [_bootActivityIndicator startAnimating];
@@ -2510,7 +2538,23 @@ index 0847c07..7ec15e7 100644
      NSString *configPath = [bundle pathForResource:@"dev-config" ofType:@"plist"];
      if (configPath == nil) {
          SunPadLog(@"boot skipped reason=dev config missing");
-@@ -1017,13 +1041,17 @@ - (void)presentBootError:(NSString *)message {
+@@ -976,6 +1009,7 @@ - (void)startGameIfProvisioned {
+ }
+ 
+ - (void)showGameDataSetupState {
++    [self reportStartup];
+     [_bootActivityIndicator stopAnimating];
+     _bootStatusLabel.hidden = NO;
+     _brandImageView.hidden = NO;
+@@ -1006,6 +1040,7 @@ - (void)showGameDataSetupState {
+ }
+ 
+ - (void)presentBootError:(NSString *)message {
++    [self reportStartup];
+     _bootStatusLabel.text = @"SunPad could not start.";
+     _bootStatusLabel.accessibilityLabel = _bootStatusLabel.text;
+     [_bootActivityIndicator stopAnimating];
+@@ -1017,13 +1052,17 @@ - (void)presentBootError:(NSString *)message {
  }
  
  - (void)startInputConsumer {
@@ -2532,7 +2576,7 @@ index 0847c07..7ec15e7 100644
      __weak SunPadGameViewController *weakSelf = self;
      dispatch_source_set_event_handler(_controllerTimer, ^{
          [weakSelf publishMergedInput];
-@@ -1031,11 +1059,43 @@ - (void)startInputConsumer {
+@@ -1031,11 +1070,43 @@ - (void)startInputConsumer {
      dispatch_resume(_controllerTimer);
  }
  
@@ -2576,6 +2620,14 @@ index 0847c07..7ec15e7 100644
  - (void)pauseRuntimeForApplicationLifecycle {
      _performanceLogSeconds = 0;
      _hasPerformanceUsageBaseline = NO;
+@@ -1296,6 +1367,7 @@ - (void)presentPhysicalButtonChoicesForGameButton:(uint16_t)gameButton {
+ }
+ 
+ - (void)presentGameDataImport {
++    [self reportStartup];
+     NSArray<UTType *> *types = @[
+         [UTType typeWithFilenameExtension:@"iso"],
+         [UTType typeWithFilenameExtension:@"gcm"],
 diff --git a/apple/ios/SunPadNSOGCBridge.h b/apple/ios/SunPadNSOGCBridge.h
 new file mode 100644
 index 0000000..b0409b9

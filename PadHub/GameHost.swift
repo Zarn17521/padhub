@@ -28,6 +28,9 @@ final class GameHost: ObservableObject {
   var didImportDisc: (() -> Void)?
   /// The menu shown over a game (GameMenuView, made by PadHubApp).
   var makeGameMenu: (() -> AnyView)?
+  /// The launch screen over a game that is starting (DiscBootView), until its
+  /// first frame.
+  var makeBootScreen: ((Game) -> AnyView)?
   let gameMenu = GameMenuModel()
 
   private var loaded: [String: PadHubGame] = [:]
@@ -37,6 +40,8 @@ final class GameHost: ObservableObject {
   private static let openAtLaunchKey = "PadHubOpenAtLaunch"
   private var window: UIWindow?
   private var gameMenuWindow: UIWindow?
+  private var bootWindow: UIWindow?
+  private var bootToken = 0
   private weak var menuWindow: UIWindow?
 
   init() {
@@ -87,6 +92,7 @@ final class GameHost: ObservableObject {
     Log.write("open \(game.id)")
     willShowGame?()
     show(instance.viewController)
+    beginBootScreen(for: game, instance)
     instance.resume()
     current = game
     inFront = true
@@ -118,7 +124,7 @@ final class GameHost: ObservableObject {
     controller.game = instance.viewController
     let menu = gameMenuWindow ?? UIWindow(windowScene: scene)
     gameMenuWindow = menu
-    menu.windowLevel = .normal + 1
+    menu.windowLevel = .normal + 2  // above the launch screen
     menu.backgroundColor = .clear
     menu.rootViewController = controller
     menu.alpha = 0
@@ -173,6 +179,7 @@ final class GameHost: ObservableObject {
   func returnToMenu() {
     guard inFront, let current, let instance = loaded[current.id] else { return }
     Log.write("back to the menu from \(current.id)")
+    endBootScreen(bootToken, fade: false)
     if showingGameMenu {
       hideGameMenu()  // the game is paused already
     } else {
@@ -321,6 +328,65 @@ final class GameHost: ObservableObject {
 
   var showingSettings: Bool {
     topViewController(of: showingGameMenu ? gameMenuWindow : hubWindow())?.presentingViewController != nil
+  }
+
+  // MARK: The launch screen
+
+  /// Puts the launch screen over a game that starts, for as long as it has
+  /// not shown its first frame: until the game says so, it shows a screen of
+  /// its own (an alert, a picker), or a minute has gone by.
+  private func beginBootScreen(for game: Game, _ instance: PadHubGame) {
+    bootToken += 1
+    let token = bootToken
+    var startedAlready = false
+    let waiting =
+      instance.wait?(forStartup: { [weak self] in
+        startedAlready = true
+        self?.endBootScreen(token, fade: true)
+      }) ?? false
+    guard waiting, !startedAlready, let content = makeBootScreen?(game), let scene = window?.windowScene
+    else { return }
+    Log.write("launch screen for \(game.id)")
+    let boot = bootWindow ?? UIWindow(windowScene: scene)
+    bootWindow = boot
+    boot.windowLevel = .normal + 1  // above the game, and SDL's own window
+    boot.isUserInteractionEnabled = false
+    boot.backgroundColor = .clear
+    let controller = GameMenuController(rootView: content)
+    controller.game = instance.viewController
+    boot.rootViewController = controller
+    boot.alpha = 1
+    boot.isHidden = false
+    DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+      self?.endBootScreen(token, fade: true)
+    }
+    watchBootScreen(token)
+  }
+
+  /// The game put up a screen of its own while starting: it goes first.
+  private func watchBootScreen(_ token: Int) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+      guard let self, token == self.bootToken, self.bootWindow?.isHidden == false else { return }
+      if self.window?.rootViewController?.presentedViewController != nil {
+        self.endBootScreen(token, fade: true)
+      } else {
+        self.watchBootScreen(token)
+      }
+    }
+  }
+
+  private func endBootScreen(_ token: Int, fade: Bool) {
+    guard token == bootToken, let boot = bootWindow, !boot.isHidden else { return }
+    bootToken += 1  // nothing waits on this one any more
+    let hide = {
+      boot.isHidden = true
+      boot.rootViewController = nil
+      boot.alpha = 1
+    }
+    guard fade else { return hide() }
+    UIView.animate(withDuration: 0.5, animations: { boot.alpha = 0 }) { _ in
+      if boot.alpha == 0 { hide() }
+    }
   }
 
   // MARK: Loading and showing

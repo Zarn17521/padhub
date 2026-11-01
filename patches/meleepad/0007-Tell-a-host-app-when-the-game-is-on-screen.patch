@@ -1,0 +1,93 @@
+From df233f39da2158e525dbd5520626dda8724ca568 Mon Sep 17 00:00:00 2001
+From: pookee <13053375+pookee@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 13:02:55 +0100
+Subject: [PATCH 7/7] Tell a host app when the game is on screen
+
+startupHandler is called once per start, on the main thread, when the game
+shows its first frame or needs the player instead (its home screen, an error,
+its game data). A host app (PadHub) shows its own launch screen until then.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ apple/ios/MeleePadGameViewController.h  |  5 +++++
+ apple/ios/MeleePadGameViewController.mm | 13 +++++++++++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/apple/ios/MeleePadGameViewController.h b/apple/ios/MeleePadGameViewController.h
+index a37a2e5..c2ffeec 100644
+--- a/apple/ios/MeleePadGameViewController.h
++++ b/apple/ios/MeleePadGameViewController.h
+@@ -26,6 +26,11 @@ NS_ASSUME_NONNULL_BEGIN
+  * still needs (the disc, the module). */
+ - (void)playFromHome;
+ 
++/* Called once on the main thread when the game shows its first frame, or
++ * when it needs the player instead (an error, its game data). A host app
++ * (PadHub) takes down its own launch screen then. Set it before each start. */
++@property(nonatomic, copy, nullable) void (^startupHandler)(void);
++
+ @end
+ 
+ NS_ASSUME_NONNULL_END
+diff --git a/apple/ios/MeleePadGameViewController.mm b/apple/ios/MeleePadGameViewController.mm
+index 0e2f3ac..97a737d 100644
+--- a/apple/ios/MeleePadGameViewController.mm
++++ b/apple/ios/MeleePadGameViewController.mm
+@@ -746,6 +746,14 @@ - (void)startFPSMonitor {
+     dispatch_resume(fpsTimer);
+ }
+ 
++// The game is on screen, or waits for the player: once per start (startupHandler).
++- (void)reportStartup {
++    void (^handler)(void) = self.startupHandler;
++    self.startupHandler = nil;
++    if (handler != nil)
++        handler();
++}
++
+ - (void)updateFPSLabel {
+     [self reconcileControllersForReason:@"periodic"];
+     [self updateSlippiConnectionBanner];
+@@ -757,6 +765,7 @@ - (void)updateFPSLabel {
+         _hasPerformanceUsageBaseline = NO;
+     }
+     if (fps > 0.0) {
++        [self reportStartup];
+         _bootStatusLabel.hidden = YES;
+         [_bootActivityIndicator stopAnimating];
+         if (++_performanceLogSeconds >= 10) {
+@@ -1335,6 +1344,7 @@ - (BOOL)checkSlippiInstallForRevision:(NSInteger)revision {
+ }
+ 
+ - (void)showHomeForRevision:(NSInteger)revision {
++    [self reportStartup];
+     [_homeView removeFromSuperview];
+     [_bootActivityIndicator stopAnimating];
+     _bootStatusLabel.hidden = YES;
+@@ -1895,6 +1905,7 @@ - (void)startGameIfProvisioned {
+ }
+ 
+ - (void)showGameDataSetupState {
++    [self reportStartup];
+     _gameDataImportButton.hidden = YES;
+     [self showHomeForRevision:-1];
+ }
+@@ -1909,6 +1920,7 @@ - (void)viewDidAppear:(BOOL)animated {
+ }
+ 
+ - (void)presentBootError:(NSString *)message {
++    [self reportStartup];
+     _bootStatusLabel.text = @"MeleePad could not start.";
+     _bootStatusLabel.accessibilityLabel = _bootStatusLabel.text;
+     [_bootActivityIndicator stopAnimating];
+@@ -2760,6 +2772,7 @@ - (void)presentSlippiAccountImportAndStart:(BOOL)startAfterImport {
+ }
+ 
+ - (void)presentGameDataImport {
++    [self reportStartup];
+     if (_onlinePlaySessionRequested) {
+         [self presentBootError:@"Leave Online Play before changing game data or versions."];
+         return;
+-- 
+2.54.0 (Apple Git-157)
+

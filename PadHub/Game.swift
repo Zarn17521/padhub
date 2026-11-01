@@ -75,6 +75,13 @@ struct Game: Identifiable, Codable, Hashable {
       URL(string: address).map { ($0, isFullSleeve) }
     }
   }
+
+  /// A scan of the game's disc, for its launch screen: GameTDB has GameCube
+  /// and Wii discs, label side, 160 pixels across.
+  var discArtSources: [URL] {
+    guard let artID, platform == .gameCube || platform == .wii else { return [] }
+    return ["US", "EN"].compactMap { URL(string: "https://art.gametdb.com/wii/disc/\($0)/\(artID).png") }
+  }
 }
 
 extension Game {

@@ -22,6 +22,7 @@
     MeleePadGameViewController *_viewController;
     BOOL _inFront;
     BOOL _stopped;
+    BOOL _started;  // showed its first frame (or needed the player) since its last start
     UIBackgroundTaskIdentifier _saveFlushTask;
 }
 
@@ -86,7 +87,22 @@
 - (void)stop {
     _inFront = NO;
     _stopped = YES;
+    _started = NO;
     [_viewController stopGame];
+}
+
+- (BOOL)waitForStartup:(void (^)(void))handler {
+    if (_started)
+        return NO;
+    void (^done)(void) = [handler copy];
+    __weak MeleePadHubGame *weakSelf = self;
+    _viewController.startupHandler = ^{
+        MeleePadHubGame *strongSelf = weakSelf;
+        if (strongSelf != nil)
+            strongSelf->_started = YES;
+        done();
+    };
+    return YES;
 }
 
 - (void)showControllerMapping {

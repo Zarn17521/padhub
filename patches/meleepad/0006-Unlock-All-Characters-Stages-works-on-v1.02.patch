@@ -1,0 +1,180 @@
+From 631367c3a17f136b5caf380989d9f619301d9998 Mon Sep 17 00:00:00 2001
+From: pookee <13053375+pookee@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 13:02:55 +0100
+Subject: [PATCH 6/7] Unlock All Characters & Stages works on v1.02
+
+The offline cheat selected Dolphin's "$All Characters and Stages", which only
+v1.00's GameINI has, as an Action Replay code. v1.02's GameINI has the unlock
+only as a Gecko code, "$Unlock All Characters and Stages [Datel]", so on
+v1.02, the revision new setups use, turning the cheat on restarted the game
+and unlocked nothing. Each revision now selects its own code, in its own
+section ([ActionReplay_Enabled] for v1.00, [Gecko_Enabled] for v1.02), and a
+v1.00 name left in a v1.02 file by the old selection is dropped. The test
+checks both revisions' bundled codes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ apple/ios/MeleePadCoreHost.mm | 47 ++++++++++++++++++++++-------------
+ tests/test-offline-cheats.sh  | 28 ++++++++++++---------
+ 2 files changed, 46 insertions(+), 29 deletions(-)
+
+diff --git a/apple/ios/MeleePadCoreHost.mm b/apple/ios/MeleePadCoreHost.mm
+index 3320fa7..3ec17c4 100644
+--- a/apple/ios/MeleePadCoreHost.mm
++++ b/apple/ios/MeleePadCoreHost.mm
+@@ -93,7 +93,6 @@ static void MeleePadRuntimeLogCallback(
+     return userDirectory;
+ }
+ 
+-static NSString *const MeleePadUnlockAllCodeName = @"$All Characters and Stages";
+ 
+ /* GameCube ports 1-3 (players 2-4) for NSO GameCube controllers. The running
+  * core host publishes its pipe ends here, so writers on other threads never
+@@ -140,9 +139,20 @@ static void MeleePadRuntimeLogCallback(
+         port + 1, MeleePadPortPipeName(port)];
+ }
+ 
++/* Dolphin's bundled code that unlocks every character and stage, as each
++ * revision's GameINI has it: v1.00's is an Action Replay code, "$All
++ * Characters and Stages"; v1.02's exists only as a Gecko code, "$Unlock All
++ * Characters and Stages [Datel]" (both write the save's unlock flags, at each
++ * revision's address). Selecting v1.00's code for a v1.02 game selected
++ * nothing. */
++static NSString *const MeleePadUnlockAllCodeNameR0 = @"$All Characters and Stages";
++static NSString *const MeleePadUnlockAllCodeNameR2 = @"$Unlock All Characters and Stages [Datel]";
++
+ /* Maintain only MeleePad's named activation in Dolphin's local GameINI. The
+- * bundled Action Replay definition remains Dolphin-owned; this file merely
+- * selects it. Unrelated user sections and code selections are preserved. */
++ * bundled code definition remains Dolphin-owned; this file merely selects it,
++ * in [ActionReplay_Enabled] (v1.00) or [Gecko_Enabled] (v1.02). Unrelated
++ * user sections and code selections are preserved; MeleePad's selection in
++ * the other section (a v1.00 name left in a v1.02 file) is dropped. */
+ static BOOL MeleePadConfigureOfflineCheats(NSString *userDirectory,
+                                            BOOL unlockAll,
+                                            NSInteger revision,
+@@ -157,12 +167,14 @@ static BOOL MeleePadConfigureOfflineCheats(NSString *userDirectory,
+     if (existing == nil && !unlockAll)
+         return NO;
+ 
++    NSString *unlockSection = revision == 2 ? @"[Gecko_Enabled]" : @"[ActionReplay_Enabled]";
++    NSString *unlockName = revision == 2 ? MeleePadUnlockAllCodeNameR2 : MeleePadUnlockAllCodeNameR0;
+     NSMutableArray<NSString *> *output = [NSMutableArray array];
+     NSArray<NSString *> *lines = [(existing ?: @"")
+         componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet];
+-    BOOL inActionReplayEnabled = NO;
++    BOOL inUnlockSection = NO;
+     BOOL inAnyEnabledSection = NO;
+-    BOOL foundActionReplayEnabled = NO;
++    BOOL foundUnlockSection = NO;
+     BOOL insertedUnlock = NO;
+     BOOL hasEnabledCode = NO;
+ 
+@@ -171,20 +183,21 @@ static BOOL MeleePadConfigureOfflineCheats(NSString *userDirectory,
+             NSCharacterSet.whitespaceAndNewlineCharacterSet];
+         BOOL isSection = [trimmed hasPrefix:@"["] && [trimmed hasSuffix:@"]"];
+         if (isSection) {
+-            if (inActionReplayEnabled && unlockAll && !insertedUnlock) {
+-                [output addObject:MeleePadUnlockAllCodeName];
++            if (inUnlockSection && unlockAll && !insertedUnlock) {
++                [output addObject:unlockName];
+                 insertedUnlock = YES;
+                 hasEnabledCode = YES;
+             }
+-            inActionReplayEnabled = [trimmed isEqualToString:@"[ActionReplay_Enabled]"];
+-            inAnyEnabledSection = inActionReplayEnabled ||
++            inUnlockSection = [trimmed isEqualToString:unlockSection];
++            inAnyEnabledSection = [trimmed isEqualToString:@"[ActionReplay_Enabled]"] ||
+                 [trimmed isEqualToString:@"[Gecko_Enabled]"];
+-            foundActionReplayEnabled |= inActionReplayEnabled;
++            foundUnlockSection |= inUnlockSection;
+             [output addObject:line];
+             continue;
+         }
+-        if (inActionReplayEnabled &&
+-            [trimmed isEqualToString:MeleePadUnlockAllCodeName]) {
++        if (inAnyEnabledSection &&
++            ([trimmed isEqualToString:MeleePadUnlockAllCodeNameR0] ||
++             [trimmed isEqualToString:MeleePadUnlockAllCodeNameR2])) {
+             // Reinsert exactly once below when the preference is enabled.
+             continue;
+         }
+@@ -193,15 +206,15 @@ static BOOL MeleePadConfigureOfflineCheats(NSString *userDirectory,
+         [output addObject:line];
+     }
+ 
+-    if (inActionReplayEnabled && unlockAll && !insertedUnlock) {
+-        [output addObject:MeleePadUnlockAllCodeName];
++    if (inUnlockSection && unlockAll && !insertedUnlock) {
++        [output addObject:unlockName];
+         insertedUnlock = YES;
+         hasEnabledCode = YES;
+-    } else if (unlockAll && !foundActionReplayEnabled) {
++    } else if (unlockAll && !foundUnlockSection) {
+         if (output.count > 0 && ((NSString *)output.lastObject).length > 0)
+             [output addObject:@""];
+-        [output addObject:@"[ActionReplay_Enabled]"];
+-        [output addObject:MeleePadUnlockAllCodeName];
++        [output addObject:unlockSection];
++        [output addObject:unlockName];
+         hasEnabledCode = YES;
+     }
+ 
+diff --git a/tests/test-offline-cheats.sh b/tests/test-offline-cheats.sh
+index fbcf3b7..3909bdd 100755
+--- a/tests/test-offline-cheats.sh
++++ b/tests/test-offline-cheats.sh
+@@ -7,6 +7,7 @@ OVERLAY="$ROOT/apple/ios/MeleePadGameOverlay.mm"
+ SETTINGS="$ROOT/apple/shared/MeleePadSettings.mm"
+ APP_DELEGATE="$ROOT/apple/ios/MeleePadAppDelegate.mm"
+ GAME_INI="$ROOT/ref/ModernGekko/vendor/dolphin/Data/Sys/GameSettings/GALE01r0.ini"
++GAME_INI_R2="$ROOT/ref/ModernGekko/vendor/dolphin/Data/Sys/GameSettings/GALE01r2.ini"
+ 
+ for contract in \
+   'Offline Cheats' \
+@@ -19,27 +20,30 @@ done
+ 
+ grep -Fq 'boolForKey:@"MeleePadUnlockAllCharactersAndStages"' "$SETTINGS"
+ grep -Fq '@"UnlockAllCharactersAndStages"' "$APP_DELEGATE"
+-grep -Fq 'MeleePadUnlockAllCodeName = @"$All Characters and Stages"' "$HOST"
++grep -Fq 'MeleePadUnlockAllCodeNameR0 = @"$All Characters and Stages"' "$HOST"
++grep -Fq 'MeleePadUnlockAllCodeNameR2 = @"$Unlock All Characters and Stages [Datel]"' "$HOST"
++grep -Fq 'revision == 2 ? @"[Gecko_Enabled]" : @"[ActionReplay_Enabled]"' "$HOST"
+ grep -Fq 'revision == 2 ? @"GALE01r2.ini" : @"GALE01r0.ini"' "$HOST"
+ grep -Fq '_allowOfflineCheats->store(false' "$HOST"
+ grep -Fq 'MeleePadConfigureOfflineCheats(runtimeUserDirectory, NO' "$HOST"
+ grep -Fq 'Config::SetBase(Config::MAIN_ENABLE_CHEATS, false)' "$HOST"
+ grep -Fq 'Config::SetBase(Config::MAIN_ENABLE_CHEATS' "$HOST"
+ 
+-python3 - "$GAME_INI" <<'PY'
++python3 - "$GAME_INI" "$GAME_INI_R2" <<'PY'
+ from pathlib import Path
+ import sys
+ 
+-text = Path(sys.argv[1]).read_text()
+-section = text.split('[ActionReplay]', 1)[1].split('\n[', 1)[0]
+-required = (
+-    '$All Characters and Stages',
+-    '04459F58 FFFFFFFF',
+-    '04459F60 FFFFFFFF',
+-)
+-for line in required:
+-    if line not in section:
+-        raise SystemExit(f'missing bundled unlock contract: {line}')
++# The code each revision selects, in that revision's bundled GameINI section:
++# v1.00's Action Replay code, v1.02's Gecko code.
++for path, section_name, required in (
++    (sys.argv[1], '[ActionReplay]', ('$All Characters and Stages', '04459F58 FFFFFFFF', '04459F60 FFFFFFFF')),
++    (sys.argv[2], '[Gecko]', ('$Unlock All Characters and Stages [Datel]', '0445BF28 FFFFFFFF', '0445BF2C FFFFFFFF')),
++):
++    text = Path(path).read_text()
++    section = text.split('\n' + section_name + '\n', 1)[1].split('\n[', 1)[0]
++    for line in required:
++        if line not in section:
++            raise SystemExit(f'missing bundled unlock contract in {Path(path).name}: {line}')
+ PY
+ 
+ echo "Offline cheat menu, persistence warning, code selection, and netplay gate passed"
+-- 
+2.54.0 (Apple Git-157)
+

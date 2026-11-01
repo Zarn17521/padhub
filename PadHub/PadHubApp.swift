@@ -21,6 +21,9 @@ struct PadHubApp: App {
           host.makeGameMenu = { [host, controllers, library] in
             AnyView(GameMenuView(model: host.gameMenu, controllers: controllers, library: library))
           }
+          host.makeBootScreen = { [library] game in
+            AnyView(DiscBootView(game: game, disc: library.disc(for: game), cover: library.cover(for: game)))
+          }
           controllers.start()
           DiscImports.prepare()
           library.refreshInstalled()

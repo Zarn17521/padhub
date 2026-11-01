@@ -71,6 +71,8 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
     UIView *_pausedPicture;
     NSTimer *_guideWatchTimer;
     BOOL _started;
+    BOOL _firstFrame;  // the game has drawn (PadHub's launch screen can go)
+    NSTimer *_firstFrameTimer;
     BOOL _stopping;  // the loop is asked to end
     BOOL _ended;     // the loop has ended: the game cannot start again before PadHub restarts
     void (^_stopCompletion)(BOOL stopped);
@@ -181,6 +183,30 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
     NSError *error = nil;
     if (![files moveItemAtPath:url.path toPath:disc error:&error])
         NSLog(@"[padhub] Wind Waker disc not moved: %@", error.localizedDescription);
+}
+
+// PadHub's launch screen stays until the game draws. The first-run screen, which prepares the disc
+// the first time, is a screen of its own.
+- (BOOL)waitForStartup:(void (^)(void))handler {
+    if (_firstFrame || _ended || _stopping)
+        return NO;
+    NSString *dol = [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+        stringByAppendingPathComponent:@"BlueWake"] stringByAppendingPathComponent:@"main.dol"];
+    if (![NSFileManager.defaultManager fileExistsAtPath:dol])
+        return NO;
+    void (^done)(void) = [handler copy];
+    [_firstFrameTimer invalidate];
+    __weak BlueWakeHubGame *weakSelf = self;
+    _firstFrameTimer = [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *timer) {
+        BlueWakeHubGame *strongSelf = weakSelf;
+        if (strongSelf == nil || strongSelf->_ended || bluewake_fps_display() > 0.f || bluewake_fps_game() > 0.f) {
+            [timer invalidate];
+            if (strongSelf != nil)
+                strongSelf->_firstFrame = YES;
+            done();
+        }
+    }];
+    return YES;
 }
 
 #pragma mark - The game's loop

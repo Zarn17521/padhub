@@ -1,7 +1,7 @@
 From 51df238e91533eddadb0c94d56aa2997b613a60a Mon Sep 17 00:00:00 2001
 From: pookee <13053375+pookee@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 01:52:26 +0100
-Subject: [PATCH 1/5] Up to four NSO GameCube controllers, players 1 to 4
+Subject: [PATCH 1/7] Up to four NSO GameCube controllers, players 1 to 4
 
 iOS has no driver for the Switch 2's NSO GameCube controller. NSOGCKit
 (apple/ios/NSOGC, from pookee/nso-gamecube-ios a6a82e8) connects it over

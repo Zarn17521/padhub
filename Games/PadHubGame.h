@@ -63,6 +63,12 @@ NS_ASSUME_NONNULL_BEGIN
 /* The game's own button mapping, shown over the game. */
 - (void)showControllerMapping;
 
+/* For PadHub's launch screen, before the game starts or resumes: YES, and
+ * handler is called on the main thread once the game shows its first frame
+ * or needs the player instead; NO when there is nothing to wait for (it is
+ * already running, or shows a screen of its own first). */
+- (BOOL)waitForStartup:(void (^)(void))handler;
+
 @end
 
 NS_ASSUME_NONNULL_END

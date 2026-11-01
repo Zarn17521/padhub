@@ -55,9 +55,16 @@ struct HubView: View {
 
   private var header: some View {
     HStack {
-      Text("PadHub")
-        .font(.system(size: 34, weight: .black, design: .rounded))
-        .foregroundStyle(.white)
+      HStack(spacing: 10) {
+        Image("Logo")
+          .resizable()
+          .scaledToFit()
+          .frame(height: 44)
+          .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
+        Text("PadHub")
+          .font(.system(size: 34, weight: .black, design: .rounded))
+          .foregroundStyle(.white)
+      }
       Spacer()
       Label(controllers.statusText, systemImage: controllers.isConnected ? "gamecontroller.fill" : "dot.radiowaves.left.and.right")
         .font(.footnote.weight(.semibold))

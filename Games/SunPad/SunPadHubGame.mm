@@ -5,9 +5,10 @@
 #import "SunPadGameViewController.h"
 #import "SunPadNSOGCBridge.h"
 
-// SunPad's own import, which its file picker uses too.
+// SunPad's own import, which its file picker uses too, and its button mapping.
 @interface SunPadGameViewController (PadHubImport)
 - (void)importGameDataFromURL:(NSURL *)url;
+- (void)presentControllerMapping;
 @end
 
 /* SunPad inside PadHub: what SunPad's app delegate does for the standalone
@@ -30,7 +31,7 @@
         _saveFlushTask = UIBackgroundTaskInvalid;
         void (^exitToHub)(void) = [exitHandler copy];
         SunPadGameOverlay.hostMenuElements = @[
-            [UIAction actionWithTitle:@"Back to PadHub"
+            [UIAction actionWithTitle:@"PadHub Menu"
                                 image:[UIImage systemImageNamed:@"house.fill"]
                            identifier:nil
                               handler:^(__kindof UIAction *action) {
@@ -88,6 +89,10 @@
 - (void)importDiscAtURL:(NSURL *)url {
     SunPadLog(@"hub import disc=%@", url.lastPathComponent);
     [_viewController importGameDataFromURL:url];
+}
+
+- (void)showControllerMapping {
+    [_viewController presentControllerMapping];
 }
 
 #pragma mark - The app going to the background while SunPad is in front

@@ -17,6 +17,10 @@ struct PadHubApp: App {
           host.willShowGame = { [controllers] in controllers.release() }
           host.didReturnToMenu = { [controllers] in controllers.claim() }
           host.didImportDisc = { [library] in library.refreshInstalled() }
+          host.gameMenu.controllers = controllers
+          host.makeGameMenu = { [host, controllers, library] in
+            AnyView(GameMenuView(model: host.gameMenu, controllers: controllers, library: library))
+          }
           controllers.start()
           DiscImports.prepare()
           library.refreshInstalled()
@@ -79,6 +83,25 @@ struct PadHubApp: App {
     // Let the menu's window settle first.
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
       if host.current?.id != game.id || !host.inFront { host.open(game) }
+      showGameMenuForTest()
+    }
+  }
+
+  /// `-padhubGameMenuAfter <seconds> [-padhubGameMenuPage controllers]`: brings
+  /// up PadHub's menu over the game opened at launch, for screenshots taken
+  /// from a Mac.
+  private func showGameMenuForTest() {
+    let arguments = ProcessInfo.processInfo.arguments
+    guard let index = arguments.firstIndex(of: "-padhubGameMenuAfter"), index + 1 < arguments.count,
+      let seconds = Double(arguments[index + 1])
+    else { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+      host.showGameMenu()
+      if let page = arguments.firstIndex(of: "-padhubGameMenuPage"), page + 1 < arguments.count,
+        arguments[page + 1] == "controllers"
+      {
+        host.gameMenu.activate(.controllers)
+      }
     }
   }
 }

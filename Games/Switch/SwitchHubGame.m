@@ -10,13 +10,15 @@ int dm_ios_boot_env(void);
 UIViewController *front_ios_root(void);
 void front_ios_focus_event(int ev);
 void front_ios_set_host_overlay(UIView *view);
+void front_ios_reclaim(void);
 void dm_gamepad_set_home_handler(void (^handler)(void));
+void *dm_launcher_settings_controller(void (^done)(void));  // Launcher.swift, +1
 
 /* A Switch game built with nxnative, inside PadHub. The framework carries the game's code and tables;
  * its game files (romfs.img) and shader libraries (msl) live in its own data folder, Library/
  * Application Support/Switch/<title ID>, put there once from a Mac. Going behind PadHub's menu is
- * what going to the background is for the game. It cannot end for another game: once it has run,
- * PadHub restarts to start another one (canStop). */
+ * what going to the background is for the game. It cannot end (canStop): it waits, paused, while
+ * a GameCube game runs, and PadHub restarts to start another Switch game. */
 @interface SwitchHubGame : NSObject <PadHubGame>
 @end
 
@@ -35,6 +37,9 @@ void dm_gamepad_set_home_handler(void (^handler)(void));
         dm_ios_set_data_dir([[support stringByAppendingPathComponent:@"Switch"]
             stringByAppendingPathComponent:title]);
         dm_ios_boot_env();
+        // No settings screen before the game: it starts with the saved choices, and PadHub shows
+        // the settings (settingsViewControllerWithDone:).
+        setenv("DM_LAUNCHER", "0", 1);
 
         void (^exitToHub)(void) = [exitHandler copy];
         __weak SwitchHubGame *weakSelf = self;
@@ -45,7 +50,7 @@ void dm_gamepad_set_home_handler(void (^handler)(void));
         });
         _viewController = front_ios_root();
 
-        // The touch controls have no menu: a small button brings back PadHub's.
+        // The touch controls have no menu: a small button brings up PadHub's.
         _homeButton = [UIButton buttonWithType:UIButtonTypeSystem];
         _homeButton.frame = CGRectMake(0, 0, 34, 34);
         [_homeButton setImage:[UIImage systemImageNamed:@"house.fill"] forState:UIControlStateNormal];
@@ -53,7 +58,7 @@ void dm_gamepad_set_home_handler(void (^handler)(void));
         _homeButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
         _homeButton.layer.cornerRadius = 17;
         _homeButton.alpha = 0.7;
-        _homeButton.accessibilityLabel = @"Back to PadHub";
+        _homeButton.accessibilityLabel = @"PadHub menu";
         [_homeButton addAction:[UIAction actionWithHandler:^(__kindof UIAction *action) {
             (void)action;
             exitToHub();
@@ -81,11 +86,20 @@ void dm_gamepad_set_home_handler(void (^handler)(void));
     return NO;
 }
 
++ (UIViewController *)settingsViewControllerWithDone:(void (^)(void))done {
+    return (__bridge_transfer UIViewController *)dm_launcher_settings_controller(done);
+}
+
++ (BOOL)settingsNeedRestart {
+    return YES;
+}
+
 - (void)resume {
     [_viewController loadViewIfNeeded];
     _inFront = YES;
     if (_behindMenu) {
         _behindMenu = NO;
+        front_ios_reclaim();  // another game may have run meanwhile
         front_ios_focus_event(2);
         front_ios_focus_event(3);  // also takes the NSO controllers back from PadHub's menu
     }

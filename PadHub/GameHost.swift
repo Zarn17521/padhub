@@ -3,28 +3,43 @@ import UIKit
 
 /// Runs the games built into PadHub. Each core is a framework (SunPadGame,
 /// MeleePadGame, one per Switch game) loaded the first time its game opens. A
-/// game shows in a window above the menu and waits there, paused, while the
-/// player is back in the menu; starting another game ends it first. One game
-/// runs at a time. A Switch game cannot end: once one has run, PadHub restarts
-/// to start another game, and opens it at its next launch.
+/// game shows in a window above the menu. HOME (or the game's own menu) brings
+/// up PadHub's menu over it, paused; from there the player goes back to the
+/// game, to PadHub, or quits. A game left for PadHub waits there, paused;
+/// starting another game ends it first. One game runs at a time. A game that
+/// cannot end (a Switch game) waits, paused, while others run; PadHub restarts
+/// to start another game of that kind, and opens it at its next launch.
 @MainActor
 final class GameHost: ObservableObject {
   /// The game in front, or paused behind the menu.
   @Published private(set) var current: Game?
+  /// A game that cannot end, paused while another one runs.
+  @Published private(set) var parked: Game?
   @Published private(set) var inFront = false
+  /// PadHub's menu over the game in front.
+  @Published private(set) var showingGameMenu = false
   @Published var failure: String?
 
   /// The menu gives its controllers to the game, and takes them back.
   var willShowGame: (() -> Void)?
   var didReturnToMenu: (() -> Void)?
   var didImportDisc: (() -> Void)?
+  /// The menu shown over a game (GameMenuView, made by PadHubApp).
+  var makeGameMenu: (() -> AnyView)?
+  let gameMenu = GameMenuModel()
 
   private var loaded: [String: PadHubGame] = [:]
+  private var classes: [String: PadHubGame.Type] = [:]
   /// The game that cannot end, once it has run in this process.
-  private var unstoppable: String?
+  private var unstoppable: Game?
   private static let openAtLaunchKey = "PadHubOpenAtLaunch"
   private var window: UIWindow?
+  private var gameMenuWindow: UIWindow?
   private weak var menuWindow: UIWindow?
+
+  init() {
+    gameMenu.host = self
+  }
 
   /// Opens a built-in game, or brings back the one paused behind the menu.
   /// Another game in progress ends first, as when quitting it.
@@ -35,16 +50,23 @@ final class GameHost: ObservableObject {
       return
     }
     if let current, current.id != game.id {
-      Log.write("stop \(current.id) to start \(game.id)")
-      loaded[current.id]?.stop()
+      if current.id == unstoppable?.id {
+        Log.write("keep \(current.id) paused to start \(game.id)")
+        parked = current
+      } else {
+        Log.write("stop \(current.id) to start \(game.id)")
+        loaded[current.id]?.stop()
+      }
       self.current = nil
     }
+    if parked?.id == game.id { parked = nil }
     let instance: PadHubGame
     if let existing = loaded[game.id] {
       instance = existing
     } else {
       do {
-        instance = try load(embedded)
+        let type = try gameClass(of: game, embedded)
+        instance = type.init(exitHandler: { [weak self] in self?.showGameMenu() })
         Log.write("loaded \(embedded.framework)")
       } catch {
         Log.write("could not load \(embedded.framework): \(error.localizedDescription)")
@@ -52,7 +74,7 @@ final class GameHost: ObservableObject {
         return
       }
       loaded[game.id] = instance
-      if instance.canStop == false { unstoppable = game.id }
+      if instance.canStop == false { unstoppable = game }
     }
     Log.write("open \(game.id)")
     willShowGame?()
@@ -67,12 +89,87 @@ final class GameHost: ObservableObject {
     }
   }
 
-  /// The game's menu or the controller's HOME button: back to PadHub, with
-  /// the game paused where it was.
+  // MARK: PadHub's menu over the game
+
+  /// HOME in a game, or PadHub's item in the game's own menu: the game pauses
+  /// under PadHub's menu.
+  func showGameMenu() {
+    guard inFront, !showingGameMenu, let current, let instance = loaded[current.id],
+      let content = makeGameMenu?()
+    else { return }
+    Log.write("game menu over \(current.id)")
+    instance.suspend()
+    showingGameMenu = true
+    gameMenu.prepare(
+      for: current, hasSettings: hasSettings(current),
+      hasMapping: instance.responds(to: #selector(PadHubGame.showControllerMapping)),
+      quitRestarts: current.id == unstoppable?.id)
+    didReturnToMenu?()
+    guard let scene = window?.windowScene else { return }
+    let controller = GameMenuController(rootView: content)
+    controller.game = instance.viewController
+    let menu = gameMenuWindow ?? UIWindow(windowScene: scene)
+    gameMenuWindow = menu
+    menu.windowLevel = .normal + 1
+    menu.backgroundColor = .clear
+    menu.rootViewController = controller
+    menu.alpha = 0
+    menu.makeKeyAndVisible()
+    UIView.animate(withDuration: 0.2) { menu.alpha = 1 }
+  }
+
+  /// Back to the game, where it was.
+  func resumeFromGameMenu() {
+    guard showingGameMenu, let current, let instance = loaded[current.id] else { return }
+    Log.write("game menu closed, back to \(current.id)")
+    hideGameMenu()
+    willShowGame?()
+    window?.makeKey()
+    instance.resume()
+  }
+
+  /// The game's own button mapping, over the game running again.
+  func showControllerMappingFromGameMenu() {
+    guard showingGameMenu, let current, let instance = loaded[current.id] else { return }
+    resumeFromGameMenu()
+    instance.showControllerMapping?()
+  }
+
+  /// Quits the game in front from PadHub's menu over it, back to PadHub.
+  func quitFromGameMenu() {
+    guard showingGameMenu, let current else { return }
+    if current.id == unstoppable?.id {
+      restart(toOpen: nil)
+      return
+    }
+    returnToMenu()
+    closeCurrent()
+  }
+
+  private func hideGameMenu() {
+    showingGameMenu = false
+    guard let menu = gameMenuWindow else { return }
+    UIView.animate(withDuration: 0.15) {
+      menu.alpha = 0
+    } completion: { _ in
+      guard !self.showingGameMenu else { return }
+      menu.isHidden = true
+      menu.rootViewController = nil
+    }
+  }
+
+  // MARK: Back to PadHub
+
+  /// PadHub's menu (from the menu over the game): the game waits there,
+  /// paused where it was.
   func returnToMenu() {
     guard inFront, let current, let instance = loaded[current.id] else { return }
     Log.write("back to the menu from \(current.id)")
-    instance.suspend()
+    if showingGameMenu {
+      hideGameMenu()  // the game is paused already
+    } else {
+      instance.suspend()
+    }
     inFront = false
     menuWindow?.isHidden = false
     UIView.animate(withDuration: 0.3) {
@@ -81,24 +178,40 @@ final class GameHost: ObservableObject {
       guard !self.inFront else { return }
       self.window?.isHidden = true
       self.menuWindow?.makeKey()
+      // A phone held upright turns the menu back to portrait.
+      self.menuWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
     }
     didReturnToMenu?()
   }
 
   /// The paused game can end (a Switch game cannot).
   var canCloseCurrent: Bool {
-    current.map { $0.id != unstoppable } ?? false
+    current.map { $0.id != unstoppable?.id } ?? false
   }
 
-  /// A game that cannot end has run, and `game` is another one.
+  /// A game that cannot end has run, and `game` is another one of that kind.
   func needsRestart(toOpen game: Game) -> Bool {
-    unstoppable.map { $0 != game.id } ?? false
+    guard let unstoppable, unstoppable.id != game.id else { return false }
+    return game.keepsRunning
   }
 
-  /// Quits PadHub, which opens `game` at its next launch.
-  func restart(toOpen game: Game) {
-    UserDefaults.standard.set(game.id, forKey: Self.openAtLaunchKey)
-    Log.write("restart to open \(game.id)")
+  /// The game that cannot end, once it has run (in front, paused, or waiting
+  /// while another game runs).
+  var endlessGame: Game? { unstoppable }
+
+  /// Opening `game` ends the game paused behind the menu, which the player is
+  /// asked first. A game that cannot end only waits.
+  func endsCurrent(toOpen game: Game) -> Bool {
+    guard let current, current.id != game.id else { return false }
+    return current.id != unstoppable?.id
+  }
+
+  /// Quits PadHub, which opens `game`, if any, at its next launch.
+  func restart(toOpen game: Game?) {
+    if let game {
+      UserDefaults.standard.set(game.id, forKey: Self.openAtLaunchKey)
+    }
+    Log.write("restart to open \(game?.id ?? "the menu")")
     exit(0)
   }
 
@@ -111,15 +224,73 @@ final class GameHost: ObservableObject {
 
   /// Ends the game paused behind the menu.
   func closeCurrent() {
-    guard !inFront, let current else { return }
+    guard !inFront, let current, current.id != unstoppable?.id else { return }
     Log.write("close \(current.id)")
     loaded[current.id]?.stop()
     self.current = nil
   }
 
-  private func load(_ embedded: Game.Embedded) throws -> PadHubGame {
-    let url = Bundle.main.bundleURL.appendingPathComponent("Frameworks/\(embedded.framework).framework")
-    guard let bundle = Bundle(url: url) else {
+  // MARK: A game's own settings
+
+  /// The game has settings PadHub can show (its framework's Info.plist says
+  /// so), read without loading the game.
+  func hasSettings(_ game: Game) -> Bool {
+    guard let embedded = game.embedded, let bundle = Bundle(url: frameworkURL(embedded)) else { return false }
+    return bundle.object(forInfoDictionaryKey: "PadHubGameSettings") as? Bool ?? false
+  }
+
+  /// Choices in the game's settings apply the next time it starts.
+  func settingsNeedRestart(_ game: Game) -> Bool {
+    guard let embedded = game.embedded, let type = try? gameClass(of: game, embedded) else { return false }
+    return type.settingsNeedRestart ?? false
+  }
+
+  /// Shows the game's settings over PadHub's menu, or over the game.
+  func showSettings(of game: Game) {
+    guard let embedded = game.embedded else { return }
+    let type: PadHubGame.Type
+    do {
+      type = try gameClass(of: game, embedded)
+    } catch {
+      failure = error.localizedDescription
+      return
+    }
+    let presenter = topViewController(of: showingGameMenu ? gameMenuWindow : hubWindow())
+    var shown: UIViewController?
+    guard
+      let settings = type.settingsViewController?(done: {
+        shown?.presentingViewController?.dismiss(animated: true)
+        shown = nil
+      })
+    else { return }
+    shown = settings
+    Log.write("settings of \(game.id)")
+    presenter?.present(settings, animated: true)
+  }
+
+  /// Closes the game's settings, if they are open (B on a controller).
+  @discardableResult
+  func closeSettings() -> Bool {
+    guard let presenter = topViewController(of: showingGameMenu ? gameMenuWindow : hubWindow()),
+      let presenting = presenter.presentingViewController
+    else { return false }
+    presenting.dismiss(animated: true)
+    return true
+  }
+
+  var showingSettings: Bool {
+    topViewController(of: showingGameMenu ? gameMenuWindow : hubWindow())?.presentingViewController != nil
+  }
+
+  // MARK: Loading and showing
+
+  private func frameworkURL(_ embedded: Game.Embedded) -> URL {
+    Bundle.main.bundleURL.appendingPathComponent("Frameworks/\(embedded.framework).framework")
+  }
+
+  private func gameClass(of game: Game, _ embedded: Game.Embedded) throws -> PadHubGame.Type {
+    if let type = classes[game.id] { return type }
+    guard let bundle = Bundle(url: frameworkURL(embedded)) else {
       throw HostError("\(embedded.framework) is not part of this build.")
     }
     try bundle.loadAndReturnError()
@@ -130,7 +301,20 @@ final class GameHost: ObservableObject {
     }
     // The framework's class adopts PadHubGame (its principal class).
     let type = unsafeBitCast(principal, to: PadHubGame.Type.self)
-    return type.init(exitHandler: { [weak self] in self?.returnToMenu() })
+    classes[game.id] = type
+    return type
+  }
+
+  private func hubWindow() -> UIWindow? {
+    if let menuWindow { return menuWindow }
+    let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+    return scene?.windows.first { $0 !== window && $0 !== gameMenuWindow }
+  }
+
+  private func topViewController(of window: UIWindow?) -> UIViewController? {
+    var top = window?.rootViewController
+    while let presented = top?.presentedViewController, !presented.isBeingDismissed { top = presented }
+    return top
   }
 
   private func show(_ viewController: UIViewController) {
@@ -149,6 +333,7 @@ final class GameHost: ObservableObject {
     }
     window.alpha = 0
     window.makeKeyAndVisible()
+    viewController.setNeedsUpdateOfSupportedInterfaceOrientations()
     UIView.animate(withDuration: 0.35) {
       window.alpha = 1
     } completion: { _ in
@@ -161,4 +346,21 @@ final class GameHost: ObservableObject {
     let errorDescription: String?
     init(_ message: String) { errorDescription = message }
   }
+}
+
+/// PadHub's menu over a game turns with the game, never on its own.
+private final class GameMenuController: UIHostingController<AnyView> {
+  weak var game: UIViewController?
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    view.backgroundColor = .clear
+  }
+
+  override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+    game?.supportedInterfaceOrientations ?? .all
+  }
+
+  override var prefersStatusBarHidden: Bool { true }
+  override var prefersHomeIndicatorAutoHidden: Bool { true }
 }

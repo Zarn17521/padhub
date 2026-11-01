@@ -12,12 +12,21 @@ Crossing: New Horizons) all run inside it.
 - Browse and play with a controller: NSO GameCube controllers for the Switch 2
   through [NSOGCKit](https://github.com/pookee/nso-gamecube-ios) (iOS has no
   driver for them), or any controller iOS knows. Touch works too.
-- Leave a game from its menu (Back to PadHub) or with the NSO controller's
-  HOME button (the house button on a Switch game's touch controls): it waits,
-  paused, behind the menu. A to resume it, HOME to go straight back, Close
-  game to end it. Starting another game asks to close the paused one first.
-  A Switch game cannot end once it has run: to start another game, PadHub
-  closes, and opens that game the next time you open it.
+- Games start at once, without a title or settings screen of their own. A
+  Switch game's settings (its launcher's) open from the hub (Game settings,
+  or Y) and from PadHub's menu in the game; they apply the next time it starts.
+- In any game, the NSO controller's HOME button (or PadHub Menu in the game's
+  own menu, or the house button on a Switch game's touch controls) pauses it
+  under PadHub's menu: Resume, Controllers (the controllers connected, their
+  player, rumble one to find it, disconnect an NSO controller, the game's
+  button mapping), Game settings, PadHub, Quit game. HOME again goes to the hub.
+- A game left for the hub waits there, paused. A to resume it, Close game to
+  end it; starting another game asks to close the paused one first.
+- A Switch game cannot end once it has run. It waits, paused, while a GameCube
+  game runs; to start another Switch game, or to quit it, PadHub closes, and
+  opens the next game the next time you open it.
+- The hub turns with the phone, upright or sideways; each game keeps to its
+  own orientation.
 
 ## How the games fit in one app
 
@@ -121,8 +130,10 @@ from its own menu.
 ### Checking a build
 
 - `-padhubSelfTest` opens each built-in game, goes back to the menu, and
-  switches between them, 30 seconds each. Add `-meleepadAutoBoot` so Melee
-  boots straight into the game rather than its own home screen.
+  switches between them, 30 seconds each.
+- `-padhubOpen <game> -padhubGameMenuAfter <seconds>` brings up PadHub's menu
+  over the game, and `-padhubGameMenuPage controllers` its controller page,
+  for screenshots.
 - `-PadHubNSOControllers NO -SunPadNSOGCEnabled NO -MeleePadNSOGCEnabled NO`
   keeps Bluetooth off, so no permission prompt waits on the screen.
 - PadHub writes `Documents/PadHub.log`; each game keeps its own log in

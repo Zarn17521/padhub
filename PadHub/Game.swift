@@ -47,9 +47,13 @@ struct Game: Identifiable, Codable, Hashable {
   struct Embedded: Codable, Hashable {
     var framework: String
     var module: String?
+    /// The game cannot end once started (a Switch game): it waits, paused,
+    /// while other games run, and PadHub restarts to start another such game.
+    var keepsRunning: Bool?
   }
 
   var url: URL? { URL(string: "\(scheme)://") }
+  var keepsRunning: Bool { embedded?.keepsRunning ?? false }
   var palette: [Color] { colors.map(Color.init(hex:)) }
 
   /// Where the box art comes from: GameTDB, the database Dolphin uses, first
@@ -87,11 +91,11 @@ extension Game {
     Game(
       id: "wonder", title: "Super Mario Bros. Wonder", platform: .nintendoSwitch,
       scheme: "nxnative-010015100b514000", colors: ["#7B1FA2", "#FDD835", "#43A047"],
-      symbol: "sparkles", embedded: Embedded(framework: "Switch010015100B514000"), artID: "AQMXA"),
+      symbol: "sparkles", embedded: Embedded(framework: "Switch010015100B514000", keepsRunning: true), artID: "AQMXA"),
     Game(
       id: "acnh", title: "Animal Crossing: New Horizons", platform: .nintendoSwitch,
       scheme: "nxnative-01006f8002326000", colors: ["#2E7D32", "#FFEE58", "#4FC3F7"],
-      symbol: "leaf.fill", embedded: Embedded(framework: "Switch01006F8002326000"), artID: "ACBAA"),
+      symbol: "leaf.fill", embedded: Embedded(framework: "Switch01006F8002326000", keepsRunning: true), artID: "ACBAA"),
   ]
 
   static let customPalettes: [[String]] = [

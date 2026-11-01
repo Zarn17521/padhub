@@ -11,11 +11,13 @@ NS_ASSUME_NONNULL_BEGIN
  * Main thread only. */
 @protocol PadHubGame <NSObject>
 
-/* exitHandler brings PadHub's menu back. The game calls it from its own menu
- * and on the controller's HOME button. */
+/* exitHandler brings up PadHub's menu over the game (its controllers, its
+ * settings, back to PadHub). The game calls it from its own menu and on the
+ * controller's HOME button. */
 - (instancetype)initWithExitHandler:(void (^)(void))exitHandler;
 
-/* The game's screen. PadHub shows it in a window of its own. */
+/* The game's screen. PadHub shows it in a window of its own. The game starts
+ * at once, without a title or settings screen of its own. */
 @property(nonatomic, readonly) UIViewController *viewController;
 
 /* The game comes to the front, or goes behind PadHub's menu, where it stays
@@ -32,9 +34,18 @@ NS_ASSUME_NONNULL_BEGIN
  * game's own import does. The game is in front. */
 - (void)importDiscAtURL:(NSURL *)url;
 
-/* NO for a game that cannot end once it has run (a Switch game): PadHub then
- * restarts to start another game. YES when absent. */
+/* NO for a game that cannot end once it has run: PadHub then restarts to
+ * start another game. YES when absent. */
 @property(nonatomic, readonly) BOOL canStop;
+
+/* The game's own settings, for PadHub to show whether or not the game is
+ * running; done is called once the player closes them. Choices the game reads
+ * when it starts apply the next time it starts (settingsNeedRestart). */
++ (nullable UIViewController *)settingsViewControllerWithDone:(void (^)(void))done;
+@property(class, nonatomic, readonly) BOOL settingsNeedRestart;
+
+/* The game's own button mapping, shown over the game. */
+- (void)showControllerMapping;
 
 @end
 

@@ -102,13 +102,31 @@ targetTemplates:
         GCC_PREPROCESSOR_DEFINITIONS:
           - $(inherited)
           - DM_EMBEDDED=1
+          # Objective-C classes share one namespace in the process: each Switch
+          # game's carry its title, so a second game's framework can load (its
+          # settings) beside the first.
+          - SwitchHubGame=SwitchHubGame_${title}
+          - DmResources=DmResources_${title}
+          - DmGamepad=DmGamepad_${title}
+          - DmNSOPads=DmNSOPads_${title}
+          - DmGameView=DmGameView_${title}
+          - DmRootVC=DmRootVC_${title}
+          - DmTVVC=DmTVVC_${title}
+          - DmTVSceneDelegate=DmTVSceneDelegate_${title}
         GCC_C_LANGUAGE_STANDARD: gnu11
         OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # the host's assembly uses LSE atomics
         SWIFT_VERSION: "5.0"
         GCC_WARN_INHIBIT_ALL_WARNINGS: YES
-        EXPORTED_SYMBOLS_FILE: $(SRCROOT)/Games/Switch/exports.txt
+        # Only the game's class is visible outside the framework.
+        EXPORTED_SYMBOLS_FILE: $(DERIVED_FILE_DIR)/exports.txt
         CODE_SIGN_ENTITLEMENTS: ""
         DEBUG_INFORMATION_FORMAT: dwarf
+    preBuildScripts:
+      - name: Exported symbols
+        outputFiles:
+          - $(DERIVED_FILE_DIR)/exports.txt
+        script: |
+          printf '%s\n' '_OBJC_CLASS_$_SwitchHubGame_${title}' '_OBJC_METACLASS_$_SwitchHubGame_${title}' > "$DERIVED_FILE_DIR/exports.txt"
 
 targets:
   # The NSO GameCube controller library, shared by the menu and every game so
@@ -331,8 +349,9 @@ targets:
     info:
       path: Games/Switch/010015100B514000-Info.plist
       properties:
-        NSPrincipalClass: SwitchHubGame
+        NSPrincipalClass: SwitchHubGame_010015100B514000
         CFBundleDisplayName: Super Mario Bros. Wonder
+        PadHubGameSettings: true
         DMTitleID: 010015100B514000
         DMLanguage: fr
         DMShowFPS: false
@@ -344,8 +363,9 @@ targets:
     info:
       path: Games/Switch/01006F8002326000-Info.plist
       properties:
-        NSPrincipalClass: SwitchHubGame
+        NSPrincipalClass: SwitchHubGame_01006F8002326000
         CFBundleDisplayName: "Animal Crossing: New Horizons"
+        PadHubGameSettings: true
         DMTitleID: 01006F8002326000
         DMLanguage: fr
         DMShowFPS: false
@@ -416,10 +436,14 @@ targets:
         UIRequiresFullScreen: true
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false
+        # The menu turns with the phone; each game keeps to its own orientations.
         UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
     settings:

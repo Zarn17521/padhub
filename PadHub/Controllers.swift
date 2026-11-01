@@ -1,3 +1,4 @@
+import CoreHaptics
 import GameController
 import NSOGCKit
 import SwiftUI
@@ -9,11 +10,26 @@ import SwiftUI
 /// game is paused behind the menu, its handlers are set aside so it does not
 /// see what the player does in the menu. Main queue only.
 final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
-  enum Command { case left, right, up, down, confirm, back, menu, home }
+  enum Command { case left, right, up, down, confirm, back, option, menu, home }
+
+  /// A controller as the controller settings list it.
+  struct Connected: Identifiable, Hashable {
+    enum Kind { case nso, other }
+    let id: String
+    let name: String
+    let kind: Kind
+    /// 1 for player 1, when the controller has a player.
+    let player: Int?
+    /// How it is connected, and its battery when iOS knows it.
+    let detail: String
+  }
 
   @Published private(set) var nsoController: NSOGCController?
   @Published private(set) var otherControllerName: String?
   @Published private(set) var bluetoothOn = true
+  @Published private(set) var connected: [Connected] = []
+  /// Looking for an NSO controller in SYNC mode.
+  @Published private(set) var scanning = false
 
   var onCommand: ((Command) -> Void)?
 
@@ -26,6 +42,7 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
   private var setAside: [(GCController, GCExtendedGamepadValueChangedHandler?)] = []
 
   var statusText: String {
+    if connected.count > 1 { return "\(connected.count) controllers" }
     if let nsoController { return nsoController.name }
     if let otherControllerName { return otherControllerName }
     return bluetoothOn ? "Press SYNC on your controller" : "Bluetooth is off"
@@ -54,7 +71,6 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
     manager.maximumControllers = 4  // anyone can drive the menu
     manager.delegate = self
     for controller in manager.controllers { controller.inputHandler = nil }
-    nsoController = manager.controllers.first
     for controller in GCController.controllers() {
       guard let pad = controller.extendedGamepad else { continue }
       setAside.append((controller, pad.valueChangedHandler))
@@ -66,6 +82,7 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
     if defaults.object(forKey: "PadHubNSOControllers") == nil || defaults.bool(forKey: "PadHubNSOControllers") {
       manager.start()
     }
+    refresh()
     // A button still down from the game (HOME, say) is not a menu command.
     (held, heldDirection) = read()
     let link = CADisplayLink(target: self, selector: #selector(poll))
@@ -89,20 +106,95 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
     setAside = []
   }
 
+  // MARK: Controller settings
+
+  /// Disconnects an NSO controller; it comes back on its own when it is woken
+  /// again, unless it was forgotten.
+  func disconnect(_ controller: Connected) {
+    guard controller.kind == .nso,
+      let nso = NSOGCManager.shared.controllers.first(where: { $0.identifier.uuidString == controller.id })
+    else { return }
+    Log.write("menu: disconnect \(nso.name)")
+    NSOGCManager.shared.disconnect(nso)
+  }
+
+  /// Rumbles a controller for a moment, to tell which one is which.
+  func identify(_ controller: Connected) {
+    switch controller.kind {
+    case .nso:
+      guard let nso = NSOGCManager.shared.controllers.first(where: { $0.identifier.uuidString == controller.id })
+      else { return }
+      nso.setRumble(true)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { nso.setRumble(false) }
+    case .other:
+      guard let pad = GCController.controllers().first(where: { Self.id(of: $0) == controller.id }),
+        let engine = pad.haptics?.createEngine(withLocality: .default)
+      else { return }
+      try? engine.start()
+      let event = CHHapticEvent(
+        eventType: .hapticContinuous, parameters: [CHHapticEventParameter(parameterID: .hapticIntensity, value: 1)],
+        relativeTime: 0, duration: 0.35)
+      if let pattern = try? CHHapticPattern(events: [event], parameters: []) {
+        try? engine.makePlayer(with: pattern).start(atTime: 0)
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { engine.stop() }
+    }
+  }
+
+  /// NSO controllers set up before are no longer reconnected on their own.
+  func forgetNSOControllers() {
+    Log.write("menu: forget the NSO controllers")
+    NSOGCManager.shared.forgetControllers()
+    refresh()
+  }
+
+  var hasRememberedNSOControllers: Bool { NSOGCManager.shared.hasRememberedControllers }
+
+  private func refresh() {
+    let manager = NSOGCManager.shared
+    nsoController = manager.controllers.first
+    scanning = manager.isScanning
+    var list = manager.controllers.map { controller in
+      Connected(
+        id: controller.identifier.uuidString, name: controller.name, kind: .nso,
+        player: controller.playerIndex >= 0 ? controller.playerIndex + 1 : nil,
+        detail: controller.isWired ? "USB" : "Bluetooth")
+    }
+    for controller in GCController.controllers() where controller.extendedGamepad != nil {
+      let player = controller.playerIndex == .indexUnset ? nil : controller.playerIndex.rawValue + 1
+      var detail = controller.isAttachedToDevice ? "Attached" : "Wireless"
+      if let battery = controller.battery, battery.batteryState != .unknown {
+        detail += " · \(Int((battery.batteryLevel * 100).rounded())) %"
+      }
+      list.append(
+        Connected(
+          id: Self.id(of: controller), name: controller.vendorName ?? "Controller", kind: .other,
+          player: player, detail: detail))
+    }
+    connected = list
+  }
+
+  private static func id(of controller: GCController) -> String {
+    String(UInt(bitPattern: ObjectIdentifier(controller).hashValue))
+  }
+
   // MARK: NSO GameCube controllers
 
   func manager(_ manager: NSOGCManager, didConnect controller: NSOGCController) {
     Log.write("menu: NSO controller connected \(controller.name)")
-    nsoController = manager.controllers.first
+    refresh()
     UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
   }
 
   func manager(_ manager: NSOGCManager, didDisconnect controller: NSOGCController) {
+    refresh()
     nsoController = manager.controllers.first { $0 !== controller }
+    connected.removeAll { $0.id == controller.identifier.uuidString }
   }
 
   func manager(_ manager: NSOGCManager, bluetoothAvailabilityDidChange available: Bool) {
     bluetoothOn = available
+    refresh()
   }
 
   // MARK: Other controllers
@@ -111,18 +203,21 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
     otherControllerName = GCController.controllers().first { $0.extendedGamepad != nil }.map {
       $0.vendorName ?? "Controller"
     }
+    refresh()
   }
 
   // MARK: Reading every controller once per frame
 
   @objc private func poll() {
     let (now, direction) = read()
-    for command in [Command.confirm, .back, .menu, .home]
+    for command in [Command.confirm, .back, .option, .menu, .home]
     where now.contains(command) && !held.contains(command) {
       onCommand?(command)
     }
     held = now
     setDirection(direction)
+    let isScanning = NSOGCManager.shared.isScanning
+    if isScanning != scanning { scanning = isScanning }
   }
 
   /// The buttons down on any controller, and the direction pushed.
@@ -135,6 +230,7 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
       func down(_ button: nsogc_button) -> Bool { state.buttons & button.rawValue != 0 }
       if down(NSOGC_BUTTON_A) { now.insert(.confirm) }
       if down(NSOGC_BUTTON_B) { now.insert(.back) }
+      if down(NSOGC_BUTTON_Y) { now.insert(.option) }
       if down(NSOGC_BUTTON_START) { now.insert(.menu) }
       if down(NSOGC_BUTTON_HOME) { now.insert(.home) }
       if down(NSOGC_BUTTON_DPAD_LEFT) { now.insert(.left) }
@@ -148,6 +244,7 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
       guard let pad = controller.extendedGamepad else { continue }
       if pad.buttonA.isPressed { now.insert(.confirm) }
       if pad.buttonB.isPressed { now.insert(.back) }
+      if pad.buttonY.isPressed { now.insert(.option) }
       if pad.buttonMenu.isPressed { now.insert(.menu) }
       if pad.dpad.left.isPressed { now.insert(.left) }
       if pad.dpad.right.isPressed { now.insert(.right) }

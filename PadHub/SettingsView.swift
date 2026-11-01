@@ -17,14 +17,34 @@ struct SettingsView: View {
     NavigationStack {
       List {
         Section {
-          LabeledContent("Status", value: controllers.statusText)
-          Button("Forget the NSO GameCube controller", role: .destructive) {
-            NSOGCManager.shared.forgetControllers()
+          if controllers.connected.isEmpty {
+            LabeledContent("Status", value: controllers.statusText)
+          }
+          ForEach(controllers.connected) { controller in
+            HStack {
+              VStack(alignment: .leading) {
+                Text(controller.name)
+                Text([controller.player.map { "Player \($0)" }, controller.detail].compactMap { $0 }.joined(separator: " · "))
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+              Spacer()
+              Button("Rumble", systemImage: "waveform") { controllers.identify(controller) }
+                .labelStyle(.iconOnly)
+              if controller.kind == .nso {
+                Button("Disconnect", systemImage: "xmark.circle") { controllers.disconnect(controller) }
+                  .labelStyle(.iconOnly)
+              }
+            }
+            .buttonStyle(.borderless)
+          }
+          Button("Forget the NSO GameCube controllers", role: .destructive) {
+            controllers.forgetNSOControllers()
           }
         } header: {
-          Text("Controller")
+          Text("Controllers")
         } footer: {
-          Text("Press SYNC on an NSO GameCube controller to pair it. Other controllers work as soon as iOS knows them.")
+          Text("Press SYNC on an NSO GameCube controller to pair it. Other controllers work as soon as iOS knows them. In a game, HOME opens PadHub's menu, with these settings too.")
         }
 
         Section("Games") {

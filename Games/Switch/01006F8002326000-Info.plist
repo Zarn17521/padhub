@@ -27,6 +27,8 @@
 	<key>DMTitleID</key>
 	<string>01006F8002326000</string>
 	<key>NSPrincipalClass</key>
-	<string>SwitchHubGame</string>
+	<string>SwitchHubGame_01006F8002326000</string>
+	<key>PadHubGameSettings</key>
+	<true/>
 </dict>
 </plist>

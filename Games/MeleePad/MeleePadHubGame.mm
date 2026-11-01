@@ -5,9 +5,10 @@
 #import "MeleePadGameViewController.h"
 #import "MeleePadNSOGCBridge.h"
 
-// MeleePad's own import, which its file picker uses too.
+// MeleePad's own import, which its file picker uses too, and its button mapping.
 @interface MeleePadGameViewController (PadHubImport)
 - (void)importGameDataFromURL:(NSURL *)url;
+- (void)presentControllerMapping;
 @end
 
 /* MeleePad inside PadHub: what MeleePad's app delegate does for the
@@ -20,6 +21,7 @@
 @implementation MeleePadHubGame {
     MeleePadGameViewController *_viewController;
     BOOL _inFront;
+    BOOL _stopped;
     UIBackgroundTaskIdentifier _saveFlushTask;
 }
 
@@ -29,7 +31,7 @@
         _saveFlushTask = UIBackgroundTaskInvalid;
         void (^exitToHub)(void) = [exitHandler copy];
         MeleePadGameOverlay.hostMenuElements = @[
-            [UIAction actionWithTitle:@"Back to PadHub"
+            [UIAction actionWithTitle:@"PadHub Menu"
                                 image:[UIImage systemImageNamed:@"house.fill"]
                            identifier:nil
                               handler:^(__kindof UIAction *action) {
@@ -49,6 +51,8 @@
         [center addObserver:self selector:@selector(sceneDidActivate:)
                        name:UISceneDidActivateNotification object:nil];
         _viewController = [[MeleePadGameViewController alloc] init];
+        // PadHub's menu is the home screen: Melee starts at once.
+        _viewController.playsWithoutHome = YES;
         MeleePadLog(@"hub game made host=PadHub");
     }
     return self;
@@ -59,9 +63,13 @@
 }
 
 - (void)resume {
-    // Shows MeleePad's home and connects its controllers the first time.
+    // Boots Melee and connects its controllers the first time.
     [_viewController loadViewIfNeeded];
     _inFront = YES;
+    if (_stopped) {
+        _stopped = NO;
+        [_viewController playFromHome];
+    }
     // PadHub's menu used the NSO controllers meanwhile.
     [[MeleePadNSOGCBridge sharedBridge] start];
     [_viewController resumeRuntimeForApplicationLifecycle];
@@ -74,10 +82,15 @@
     MeleePadLog(@"hub game suspended");
 }
 
-// Back to MeleePad's own home, where Play starts a new game.
+// Back to MeleePad's own home, unseen: the next resume plays again.
 - (void)stop {
     _inFront = NO;
+    _stopped = YES;
     [_viewController stopGame];
+}
+
+- (void)showControllerMapping {
+    [_viewController presentControllerMapping];
 }
 
 - (void)importDiscAtURL:(NSURL *)url {

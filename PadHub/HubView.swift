@@ -40,7 +40,7 @@ struct HubView: View {
         hints(layout)
       }
 
-      if let replacing, let paused = host.current {
+      if let replacing, let paused = host.needsRestart(toOpen: replacing) ? host.endlessGame : host.current {
         ReplaceGamePrompt(paused: paused, next: replacing, restart: host.needsRestart(toOpen: replacing)) {
           self.replacing = nil
           launch(replacing, replacingPaused: true)
@@ -96,14 +96,15 @@ struct HubView: View {
         Text("PadHub")
           .font(.system(size: layout.compact ? 26 : 34, weight: .black, design: .rounded))
           .foregroundStyle(.white)
+          .lineLimit(1)
+          .fixedSize()
       }
-      Spacer()
-      Label(controllers.statusText, systemImage: controllers.isConnected ? "gamecontroller.fill" : "dot.radiowaves.left.and.right")
-        .font(.footnote.weight(.semibold))
-        .foregroundStyle(controllers.isConnected ? .white : .white.opacity(0.7))
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: Capsule())
-        .symbolEffect(.pulse, isActive: !controllers.isConnected)
+      Spacer(minLength: 8)
+      // On a narrow screen (a phone upright) the status keeps only its symbol.
+      ViewThatFits(in: .horizontal) {
+        controllerStatus(withText: true)
+        controllerStatus(withText: false)
+      }
       Button {
         showingSettings = true
       } label: {
@@ -116,6 +117,23 @@ struct HubView: View {
     }
     .padding(.horizontal, 24)
     .padding(.top, layout.compact ? 8 : 16)
+  }
+
+  private func controllerStatus(withText: Bool) -> some View {
+    let symbol = controllers.isConnected ? "gamecontroller.fill" : "dot.radiowaves.left.and.right"
+    return Group {
+      if withText {
+        Label(controllers.statusText, systemImage: symbol).lineLimit(1)
+      } else {
+        Image(systemName: symbol)
+      }
+    }
+    .font(.footnote.weight(.semibold))
+    .foregroundStyle(controllers.isConnected ? .white : .white.opacity(0.7))
+    .padding(.horizontal, 12).padding(.vertical, 8)
+    .background(.ultraThinMaterial, in: Capsule())
+    .symbolEffect(.pulse, isActive: !controllers.isConnected)
+    .fixedSize()
   }
 
   private func carousel(_ layout: HubLayout) -> some View {
@@ -140,7 +158,8 @@ struct HubView: View {
     let size = CGSize(width: GameCard.size.width * scale, height: GameCard.size.height * scale)
     return GameCard(
       game: game, cover: library.cover(for: game), installed: library.isInstalled(game),
-      selected: game.id == selectedGame?.id, paused: host.current?.id == game.id
+      selected: game.id == selectedGame?.id,
+      paused: host.current?.id == game.id || host.parked?.id == game.id
     )
     .scaleEffect(scale)
     .frame(width: size.width, height: size.height)
@@ -161,16 +180,21 @@ struct HubView: View {
           .font(layout.compact ? .title3.weight(.bold) : .title2.weight(.bold))
           .foregroundStyle(.white)
           .contentTransition(.numericText())
-        // On a short screen the Close button sits beside the status.
+        // On a short screen the buttons sit beside the status.
         let closeButton = host.current?.id == game.id && !host.inFront && host.canCloseCurrent
+        let settingsButton = host.hasSettings(game) && library.isInstalled(game)
         if layout.compact {
           HStack(spacing: 10) {
             statusText(of: game)
+            if settingsButton { gameSettingsButton(game) }
             if closeButton { closeGameButton }
           }
         } else {
           statusText(of: game)
-          if closeButton { closeGameButton }
+          HStack(spacing: 10) {
+            if settingsButton { gameSettingsButton(game) }
+            if closeButton { closeGameButton }
+          }
         }
       } else {
         Text("No games yet")
@@ -189,6 +213,18 @@ struct HubView: View {
       .foregroundStyle(.white.opacity(0.7))
   }
 
+  private func gameSettingsButton(_ game: Game) -> some View {
+    Button {
+      host.showSettings(of: game)
+    } label: {
+      Label("Game settings", systemImage: "slider.horizontal.3")
+        .font(.caption.weight(.semibold))
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: Capsule())
+    }
+    .tint(.white)
+  }
+
   private var closeGameButton: some View {
     Button {
       withAnimation(.snappy) { host.closeCurrent() }
@@ -203,12 +239,26 @@ struct HubView: View {
   }
 
   private func hints(_ layout: HubLayout) -> some View {
-    HStack(spacing: 22) {
-      hint("A", selectedGame.map { host.current?.id == $0.id } == true ? "Resume" : "Play")
-      hint("←→", "Choose")
-      if let paused = host.current, selectedGame?.id != paused.id { hint("HOME", "Back to game") }
-      hint("START", "Settings")
+    let paused = [host.current?.id, host.parked?.id]
+    let play = selectedGame.map { paused.contains($0.id) } == true ? "Resume" : "Play"
+    let backToGame = (host.current ?? host.parked).map { $0.id != selectedGame?.id } ?? false
+    let gameSettings = selectedGame.map(host.hasSettings) ?? false
+    return ViewThatFits(in: .horizontal) {
+      HStack(spacing: 22) {
+        hint("A", play)
+        hint("←→", "Choose")
+        if gameSettings { hint("Y", "Game settings") }
+        if backToGame { hint("HOME", "Back to game") }
+        hint("START", "Settings")
+      }
+      HStack(spacing: 14) {
+        hint("A", play)
+        if gameSettings { hint("Y", "Game") }
+        if backToGame { hint("HOME", "Game") }
+        hint("START", "Settings")
+      }
     }
+    .padding(.horizontal, 16)
     .padding(.bottom, layout.compact ? 10 : 18)
     .opacity(controllers.isConnected ? 1 : 0.45)
   }
@@ -225,7 +275,9 @@ struct HubView: View {
   }
 
   private func status(of game: Game) -> String {
-    if host.current?.id == game.id { return "Paused — press A to pick up where you left off" }
+    if host.current?.id == game.id || host.parked?.id == game.id {
+      return "Paused — press A to pick up where you left off"
+    }
     if !library.isInstalled(game) { return "Not installed on this device" }
     if library.discsToImport.contains(game.id) { return "Your disc is in the Import folder: it imports when you start" }
     return game.embedded != nil ? "Ready to play" : "Opens its own app"
@@ -234,7 +286,15 @@ struct HubView: View {
   // MARK: Actions
 
   private func handle(_ command: Controllers.Command) {
+    if host.showingGameMenu {
+      host.gameMenu.handle(command)
+      return
+    }
     if host.inFront { return }
+    if host.showingSettings {
+      if command == .back || command == .home { host.closeSettings() }
+      return
+    }
     if showingSettings {
       if command == .back || command == .menu { showingSettings = false }
       return
@@ -254,9 +314,10 @@ struct HubView: View {
     case .right: step(1)
     case .up, .down: break
     case .confirm: if let game = selectedGame { launch(game) }
+    case .option: if let game = selectedGame, host.hasSettings(game) { host.showSettings(of: game) }
     case .back: break
     case .menu: showingSettings = true
-    case .home: if let paused = host.current { launch(paused) }
+    case .home: if let paused = host.current ?? host.parked { launch(paused) }
     }
   }
 
@@ -276,7 +337,9 @@ struct HubView: View {
       notInstalled = game
       return
     }
-    if game.embedded != nil, let paused = host.current, paused.id != game.id, !replacingPaused {
+    if game.embedded != nil, !replacingPaused,
+      host.needsRestart(toOpen: game) || host.endsCurrent(toOpen: game)
+    {
       replacing = game
       return
     }
@@ -287,7 +350,7 @@ struct HubView: View {
     select(game.id)
     UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
     // Back to a paused game: no need for the whole show.
-    let resuming = host.current?.id == game.id
+    let resuming = host.current?.id == game.id || host.parked?.id == game.id
     withAnimation(.easeIn(duration: resuming ? 0.2 : 0.35)) { launching = game }
     DispatchQueue.main.asyncAfter(deadline: .now() + (resuming ? 0.2 : 0.55)) {
       if game.embedded != nil {
@@ -390,7 +453,8 @@ private struct LaunchOverlay: View {
 }
 
 /// The hub fits any screen: on a short one (a phone in landscape) the cards
-/// shrink so the header, the selected game's details and the hints all show.
+/// shrink so the header, the selected game's details and the hints all show;
+/// on a phone upright they grow, as wide as leaves the next ones peeking in.
 private struct HubLayout {
   let compact: Bool
   let cardScale: CGFloat
@@ -399,9 +463,12 @@ private struct HubLayout {
 
   init(size: CGSize) {
     compact = size.height < 600
+    let portrait = size.height > size.width
     // What the header, the details and the hints take around the cards.
-    let around: CGFloat = compact ? 175 : 290
-    cardScale = min(1, max(0.5, (size.height - around) / 380))
+    let around: CGFloat = compact ? 175 : portrait ? 330 : 290
+    let byHeight = max(0.5, (size.height - around) / 380)
+    let byWidth = (size.width - 100) / GameCard.size.width
+    cardScale = min(portrait ? 1.3 : 1, byHeight, max(0.5, byWidth))
     cardMargin = max(0, (size.width - GameCard.size.width * cardScale) / 2)
   }
 }

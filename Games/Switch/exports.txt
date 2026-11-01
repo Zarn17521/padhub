@@ -1,2 +1,0 @@
-_OBJC_CLASS_$_SwitchHubGame
-_OBJC_METACLASS_$_SwitchHubGame

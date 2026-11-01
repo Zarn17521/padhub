@@ -1,0 +1,52 @@
+# PadHub: one home for the game apps built from your own games (nxnative's
+# Switch games, SunPad, MeleePad...). Generate the project with `xcodegen`,
+# then set your team.
+name: PadHub
+options:
+  deploymentTarget:
+    iOS: "18.0"
+packages:
+  NSOGCKit:
+    url: https://github.com/pookee/nso-gamecube-ios
+    revision: a6a82e83e1df913707752ecd1d62174786f8b569
+targets:
+  PadHub:
+    type: application
+    platform: iOS
+    sources:
+      - PadHub
+    dependencies:
+      - package: NSOGCKit
+    info:
+      path: PadHub/Info.plist
+      properties:
+        CFBundleDisplayName: PadHub
+        NSBluetoothAlwaysUsageDescription: PadHub connects your Nintendo Switch Online GameCube controller to browse your games.
+        NSPhotoLibraryUsageDescription: PadHub uses the pictures you pick as game covers.
+        LSApplicationQueriesSchemes:   # games PadHub can tell are installed
+          - sunpad
+          - meleepad
+          - nxnative-010015100b514000
+          - nxnative-01006f8002326000
+        GCSupportsControllerUserInteraction: true
+        UILaunchScreen: {}
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.padhub.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

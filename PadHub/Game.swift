@@ -24,39 +24,73 @@ enum Platform: String, Codable, CaseIterable, Identifiable {
   }
 }
 
-/// A game app on this phone, opened through its URL scheme.
+/// A game in PadHub: built into the app (`embedded`), or an app of its own
+/// opened through its URL scheme.
 struct Game: Identifiable, Codable, Hashable {
   var id: String
   var title: String
   var platform: Platform
-  /// Without "://": SunPad registers "sunpad", nxnative "nxnative-<title ID>".
+  /// Without "://": nxnative registers "nxnative-<title ID>".
   var scheme: String
   /// Hex colors for the card and the background, first one dominant.
   var colors: [String]
   var symbol: String
   var isCustom = false
+  /// The game's core inside PadHub, when it is built in.
+  var embedded: Embedded?
+  /// The game's ID in GameTDB, for its box art.
+  var artID: String?
+
+  /// A framework in PadHub.app/Frameworks, and the module made from the
+  /// player's own disc that it needs at the top of PadHub.app.
+  struct Embedded: Codable, Hashable {
+    var framework: String
+    var module: String
+  }
 
   var url: URL? { URL(string: "\(scheme)://") }
   var palette: [Color] { colors.map(Color.init(hex:)) }
+
+  /// Where the box art comes from: GameTDB, the database Dolphin uses, first
+  /// choice first. A GameCube "full" cover is the whole sleeve (back, spine,
+  /// front) in higher resolution than the front alone, so it gets cropped.
+  var boxArtSources: [(url: URL, isFullSleeve: Bool)] {
+    guard let artID else { return [] }
+    let art = "https://art.gametdb.com"
+    let sources: [(String, Bool)] =
+      switch platform {
+      case .gameCube, .wii:
+        [("\(art)/wii/coverfullHQ/US/\(artID).png", true), ("\(art)/wii/cover/US/\(artID).png", false)]
+      case .nintendoSwitch:
+        [("\(art)/switch/coverHQ/EN/\(artID).jpg", false), ("\(art)/switch/coverHQ/US/\(artID).jpg", false)]
+      case .other:
+        []
+      }
+    return sources.compactMap { address, isFullSleeve in
+      URL(string: address).map { ($0, isFullSleeve) }
+    }
+  }
 }
 
 extension Game {
-  /// Games built in this repository's sibling projects.
+  /// Games built from this repository's sibling projects.
   static let catalog: [Game] = [
     Game(
       id: "sunpad", title: "Super Mario Sunshine", platform: .gameCube, scheme: "sunpad",
-      colors: ["#1E88E5", "#FFB300", "#00ACC1"], symbol: "sun.max.fill"),
+      colors: ["#1E88E5", "#FFB300", "#00ACC1"], symbol: "sun.max.fill",
+      embedded: Embedded(framework: "SunPadGame", module: "gGMSE01_recomp.dylib"), artID: "GMSE01"),
     Game(
       id: "meleepad", title: "Super Smash Bros. Melee", platform: .gameCube, scheme: "meleepad",
-      colors: ["#C62828", "#37474F", "#FF7043"], symbol: "flame.fill"),
+      colors: ["#C62828", "#37474F", "#FF7043"], symbol: "flame.fill",
+      embedded: Embedded(framework: "MeleePadGame", module: "gGALE01r2_recomp.dylib"), artID: "GALE01"),
     Game(
       id: "wonder", title: "Super Mario Bros. Wonder", platform: .nintendoSwitch,
       scheme: "nxnative-010015100b514000", colors: ["#7B1FA2", "#FDD835", "#43A047"],
-      symbol: "sparkles"),
+      symbol: "sparkles", artID: "AQMXA"),
     Game(
       id: "acnh", title: "Animal Crossing: New Horizons", platform: .nintendoSwitch,
       scheme: "nxnative-01006f8002326000", colors: ["#2E7D32", "#FFEE58", "#4FC3F7"],
-      symbol: "leaf.fill"),
+      symbol: "leaf.fill", artID: "ACBAA"),
   ]
 
   static let customPalettes: [[String]] = [

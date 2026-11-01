@@ -1,0 +1,2 @@
+_OBJC_CLASS_$_SunPadHubGame
+_OBJC_METACLASS_$_SunPadHubGame

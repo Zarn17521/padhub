@@ -3,9 +3,11 @@ import SwiftUI
 /// A slowly drifting mesh of the selected game's colors.
 struct AnimatedBackground: View {
   let palette: [Color]
+  /// Still while a game is in front, so the menu takes no GPU time from it.
+  var paused = false
 
   var body: some View {
-    TimelineView(.animation) { timeline in
+    TimelineView(.animation(minimumInterval: nil, paused: paused)) { timeline in
       let t = timeline.date.timeIntervalSinceReferenceDate
       MeshGradient(
         width: 3, height: 3,

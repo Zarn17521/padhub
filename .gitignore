@@ -4,3 +4,6 @@ DerivedData/
 xcuserdata/
 *.xcuserstate
 .DS_Store
+
+# Game modules made from your own discs: never commit them.
+Modules/

@@ -1,52 +1,353 @@
-# PadHub: one home for the game apps built from your own games (nxnative's
-# Switch games, SunPad, MeleePad...). Generate the project with `xcodegen`,
-# then set your team.
+# PadHub: one app for the games you made from your own discs. Each emulator
+# core is a framework of its own, loaded when its game is first opened, so the
+# cores keep their symbols apart. The games' sources come from sibling
+# checkouts (../sunpad, ../meleepad, ../nso-gamecube-ios); see the README.
+# Generate the project with `xcodegen`, then set your team.
 name: PadHub
 options:
   deploymentTarget:
     iOS: "18.0"
-packages:
-  NSOGCKit:
-    url: https://github.com/pookee/nso-gamecube-ios
-    revision: a6a82e83e1df913707752ecd1d62174786f8b569
+settings:
+  base:
+    # Your own bundle ID: the frameworks' IDs derive from it.
+    PADHUB_BUNDLE_ID: org.padhub.app
+    SUNPAD_ROOT: $(SRCROOT)/../sunpad
+    MELEEPAD_ROOT: $(SRCROOT)/../meleepad
+    NSOGCKIT_ROOT: $(SRCROOT)/../nso-gamecube-ios/Sources/NSOGCKit
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1,2"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
+    CLANG_ENABLE_OBJC_ARC: YES
+
+targetTemplates:
+  # A game core as a framework PadHub embeds without linking: it exports only
+  # its PadHubGame class (exports.txt), so two cores can share the process.
+  GameFramework:
+    type: framework
+    platform: iOS
+    dependencies:
+      - target: NSOGCKit
+        embed: false
+      - sdk: UniformTypeIdentifiers.framework
+      - sdk: CoreHaptics.framework
+        weak: true
+      - sdk: CoreMotion.framework
+      - sdk: CoreVideo.framework
+      - sdk: CoreMedia.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: Network.framework
+      - sdk: AudioToolbox.framework
+      - sdk: AVFAudio.framework
+      - sdk: Security.framework
+      - sdk: CoreText.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreGraphics.framework
+      - sdk: GameController.framework
+      - sdk: CoreBluetooth.framework
+      - sdk: MetalKit.framework
+      - sdk: Metal.framework
+      - sdk: UIKit.framework
+    settings:
+      base:
+        ARCHS: arm64
+        SUPPORTED_PLATFORMS: iphoneos iphonesimulator
+        SKIP_INSTALL: YES
+        DEFINES_MODULE: NO
+        GCC_C_LANGUAGE_STANDARD: gnu11
+        EXPORTED_SYMBOLS_FILE: $(SRCROOT)/Games/$(GAME_NAME)/exports.txt
+        DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+
 targets:
+  # The NSO GameCube controller library, shared by the menu and every game so
+  # its classes exist once in the process.
+  NSOGCKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: ../nso-gamecube-ios/Sources/NSOGCKit
+        excludes:
+          - include
+        headerVisibility: project
+      - path: ../nso-gamecube-ios/Sources/NSOGCKit/include
+        headerVisibility: public
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PADHUB_BUNDLE_ID).NSOGCKit
+        GENERATE_INFOPLIST_FILE: YES
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+        HEADER_SEARCH_PATHS:
+          - $(NSOGCKIT_ROOT)/include
+        CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: NO
+
+  SunPadGame:
+    templates: [GameFramework]
+    sources:
+      - path: Games/SunPad
+        excludes:
+          - exports.txt
+          - Info.plist
+      - ../sunpad/apple/shared/SunPadDiagnostics.mm
+      - ../sunpad/apple/shared/SunPadInputPipeEncoder.mm
+      - ../sunpad/apple/shared/SunPadControllerMapping.mm
+      - ../sunpad/apple/shared/SunPadSaveTransfer.mm
+      - ../sunpad/apple/shared/SunPadControllerRumble.mm
+      - ../sunpad/apple/shared/SunPadInputMixer.mm
+      - ../sunpad/apple/shared/SunPadSettings.mm
+      - ../sunpad/apple/ios/SunPadDiscExtractor.mm
+      - ../sunpad/apple/ios/SunPadCoreHost.mm
+      - ../sunpad/apple/ios/SunPadGameViewController.mm
+      - ../sunpad/apple/ios/SunPadGameOverlay.mm
+      - ../sunpad/apple/ios/SunPadNSOGCBridge.mm
+      - path: ../sunpad/apple/ios/Assets.xcassets
+        buildPhase: resources
+      - path: ../sunpad/apple/ios/Provisioned/dev-config.plist
+        buildPhase: resources
+    info:
+      path: Games/SunPad/Info.plist
+      properties:
+        NSPrincipalClass: SunPadHubGame
+    settings:
+      base:
+        GAME_NAME: SunPad
+        PRODUCT_BUNDLE_IDENTIFIER: $(PADHUB_BUNDLE_ID).SunPadGame
+        CLANG_CXX_LANGUAGE_STANDARD: gnu++2b
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/Games
+          - $(SUNPAD_ROOT)/apple/ios
+          - $(SUNPAD_ROOT)/apple/shared
+          - $(SUNPAD_ROOT)/ref/ModernGekko/include
+          - $(SUNPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Source/Core
+          - $(SUNPAD_ROOT)/ref/ModernGekko/vendor/dolphin/GXRuntime/include
+          - $(SUNPAD_ROOT)/ref/ModernGekko/build-ios-$(PLATFORM_NAME)-public
+          - $(SUNPAD_ROOT)/ref/ModernGekko/build-ios-$(PLATFORM_NAME)-public/vendor/dolphin/Source/Core
+          - $(SUNPAD_ROOT)/ref/ModernGekko/vendor/fmt/fmt/include
+          - $(SUNPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Externals/picojson
+        LIBRARY_SEARCH_PATHS:
+          - $(inherited)
+          - $(SUNPAD_ROOT)/apple/ios/Provisioned/$(PLATFORM_NAME)/libs
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -lSunPadCore
+          - -lz
+          - -lbz2
+          - -liconv
+          - -lresolv
+          - -lcompression
+
+  MeleePadGame:
+    templates: [GameFramework]
+    sources:
+      - path: Games/MeleePad
+        excludes:
+          - exports.txt
+          - Info.plist
+      - ../meleepad/apple/shared/MeleePadDiagnostics.mm
+      - ../meleepad/apple/shared/MeleePadInputPipeEncoder.mm
+      - ../meleepad/apple/shared/MeleePadControllerMapping.mm
+      - ../meleepad/apple/shared/MeleePadInputMixer.mm
+      - ../meleepad/apple/shared/MeleePadSettings.mm
+      - ../meleepad/apple/ios/MeleePadDiscExtractor.mm
+      - ../meleepad/apple/ios/MeleePadCoreHost.mm
+      - ../meleepad/apple/ios/MeleePadGameViewController.mm
+      - ../meleepad/apple/ios/MeleePadGameOverlay.mm
+      - ../meleepad/apple/ios/MeleePadOnlinePlayViewController.mm
+      - ../meleepad/apple/ios/MeleePadPublicLobbyClient.m
+      - ../meleepad/apple/ios/MeleePadNSOGCBridge.mm
+      - ../meleepad/apple/ios/MeleePadSlippiHost.mm
+      # MeleePad builds these Dolphin and Slippi sources itself.
+      - path: ../meleepad/scripts/slippi-direct-probe.cpp
+        compilerFlags: &slippi "-iquote $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source -I$(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source"
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiDirectCodes.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiGame.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiGameFileLoader.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiMatchmaking.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiNetplay.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiPad.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiPlayback.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiReplayComm.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiSavestate.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiSpectate.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiStrings.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiUser.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/HW/EXI/EXI_DeviceSlippi.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Cheats/GeckoCode.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/State.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/HW/DVD/DVDThread.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/VideoCommon/OnScreenDisplay.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/HW/EXI/EXI_Device.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/PowerPC/JitCommon/JitCache.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/HLE/HLE_Misc.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/src/runtime/dolphin_runtime.cpp
+        compilerFlags: "-iquote $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source -I$(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source -DMODERNGEKKO_HAVE_IOS=1"
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/Source/Core/Core/Config/StaticRecompSettings.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/PowerPC/Interpreter_LoadStore.cpp
+        compilerFlags: *slippi
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/Source/Core/Core/StateFile.cpp
+        compilerFlags: "-iquote $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source -I$(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source -I$(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Externals/LZO -I$(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Externals/lz4/lz4/lib"
+      - path: ../meleepad/apple/ios/Assets.xcassets
+        buildPhase: resources
+    postBuildScripts:
+      # MeleePad provisions a dev-config.plist per platform.
+      - name: Copy dev-config.plist
+        script: |
+          cp "$MELEEPAD_ROOT/apple/ios/Provisioned/$PLATFORM_NAME/dev-config.plist" \
+            "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/dev-config.plist"
+        inputFiles:
+          - $(MELEEPAD_ROOT)/apple/ios/Provisioned/$(PLATFORM_NAME)/dev-config.plist
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/dev-config.plist
+    info:
+      path: Games/MeleePad/Info.plist
+      properties:
+        NSPrincipalClass: MeleePadHubGame
+    settings:
+      base:
+        GAME_NAME: MeleePad
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        PRODUCT_BUNDLE_IDENTIFIER: $(PADHUB_BUNDLE_ID).MeleePadGame
+        CLANG_CXX_LANGUAGE_STANDARD: c++23
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/Games
+          - $(MELEEPAD_ROOT)/apple/ios
+          - $(MELEEPAD_ROOT)/apple/shared
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/include
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/tools
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/src
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Source/Core
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/GXRuntime/include
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/build-ios-$(PLATFORM_NAME)-meleepad-static
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/build-ios-$(PLATFORM_NAME)-meleepad-static/vendor/dolphin/Source/Core
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Externals/fmt/fmt/include
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Externals/picojson
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Externals/enet/enet/include
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Externals/mbedtls/include
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Externals/imgui/imgui
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/Externals/SFML/SFML/include
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Externals
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/rust/ffi/includes
+          - $(MELEEPAD_ROOT)/scripts
+        OTHER_CPLUSPLUSFLAGS:
+          - $(inherited)
+          - -D_ARCH_64=1
+          - -D_M_ARM_64=1
+          - -DSLIPPI=CORE
+          - -DSLIPPI_ONLINE=CORE
+          - -include
+          - $(MELEEPAD_ROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source/Core/Slippi/SlippiCompat.h
+          - -fno-exceptions
+          - -U_LIBCPP_HARDENING_MODE
+          - -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE
+          - -DJSON_NOEXCEPTION
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -lz
+          - -lbz2
+          - -liconv
+          - -lresolv
+          - -lcompression
+          - "@$(MELEEPAD_ROOT)/apple/ios/Provisioned/$(PLATFORM_NAME)/libs/MeleePadSlippiCore.rsp"
+
   PadHub:
     type: application
     platform: iOS
+    scheme: {}
     sources:
-      - PadHub
+      - path: PadHub
+        excludes:
+          - Info.plist
+      - path: Games/PadHubGame.h
+      # Dolphin's system files, shared by every GameCube game (MeleePad's copy
+      # adds Melee's settings to SunPad's), and what MeleePad reads from the
+      # app's own bundle.
+      - path: ../meleepad/ref/ModernGekko/vendor/dolphin/Data/Sys
+        type: folder
+        buildPhase: resources
+      - path: ../meleepad/apple/shared/MeleePadRevisions.json
+        buildPhase: resources
+      - path: ../meleepad/apple/ios/Provisioned/Notices
+        type: folder
+        buildPhase: resources
     dependencies:
-      - package: NSOGCKit
+      - target: NSOGCKit
+      # Embedded only: PadHub loads a game's core when it is first opened.
+      - target: SunPadGame
+        link: false
+      - target: MeleePadGame
+        link: false
+    postBuildScripts:
+      - name: Stage game modules
+        script: '"$SRCROOT/scripts/stage-games.sh"'
+        basedOnDependencyAnalysis: false
     info:
       path: PadHub/Info.plist
       properties:
         CFBundleDisplayName: PadHub
-        NSBluetoothAlwaysUsageDescription: PadHub connects your Nintendo Switch Online GameCube controller to browse your games.
-        NSPhotoLibraryUsageDescription: PadHub uses the pictures you pick as game covers.
-        LSApplicationQueriesSchemes:   # games PadHub can tell are installed
-          - sunpad
-          - meleepad
+        CFBundleURLTypes:
+          - CFBundleURLName: PadHub launch
+            CFBundleURLSchemes:
+              - padhub
+        LSApplicationCategoryType: public.app-category.games
+        LSApplicationQueriesSchemes:   # Switch games, still apps of their own
           - nxnative-010015100b514000
           - nxnative-01006f8002326000
         GCSupportsControllerUserInteraction: true
-        UILaunchScreen: {}
+        GCSupportsGameMode: true
+        LSSupportsGameMode: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
+        NSBluetoothAlwaysUsageDescription: PadHub connects your Nintendo Switch Online GameCube controllers over Bluetooth, for its menu and its games.
+        NSLocalNetworkUsageDescription: Melee uses your local network to host or join a game with friends.
+        NSPhotoLibraryUsageDescription: PadHub uses the pictures you pick as game covers.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIApplicationSupportsIndirectInputEvents: true
+        UILaunchScreen:
+          UIColorName: ""
+        UIRequiredDeviceCapabilities:
+          - arm64
+          - metal
+        UIRequiresFullScreen: true
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false
         UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.padhub.app
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
-        TARGETED_DEVICE_FAMILY: "1,2"
+        PRODUCT_BUNDLE_IDENTIFIER: $(PADHUB_BUNDLE_ID)
         SWIFT_VERSION: "5.0"
-        CODE_SIGN_STYLE: Automatic
+        SWIFT_OBJC_BRIDGING_HEADER: PadHub/PadHub-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/Games
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ARCHS: arm64
+        SUPPORTED_PLATFORMS: iphoneos iphonesimulator

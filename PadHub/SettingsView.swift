@@ -30,14 +30,26 @@ struct SettingsView: View {
         Section("Games") {
           ForEach(library.games) { game in
             HStack {
-              Image(systemName: game.symbol)
-                .foregroundStyle(game.palette.first ?? .white)
-                .frame(width: 28)
+              if let cover = library.cover(for: game) {
+                Image(uiImage: cover)
+                  .resizable()
+                  .scaledToFill()
+                  .frame(width: 28, height: 40)
+                  .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+              } else {
+                Image(systemName: game.symbol)
+                  .foregroundStyle(game.palette.first ?? .white)
+                  .frame(width: 28)
+              }
               VStack(alignment: .leading) {
                 Text(game.title)
-                Text("\(game.platform.label) · \(game.scheme)://")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
+                Text(
+                  game.embedded != nil
+                    ? "\(game.platform.label) · built into PadHub"
+                    : "\(game.platform.label) · \(game.scheme)://"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
               }
               Spacer()
               Menu {

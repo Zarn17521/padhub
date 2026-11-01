@@ -18,35 +18,70 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>PadHub launch</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>padhub</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>GCSupportsControllerUserInteraction</key>
 	<true/>
+	<key>GCSupportsGameMode</key>
+	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.games</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
-		<string>sunpad</string>
-		<string>meleepad</string>
 		<string>nxnative-010015100b514000</string>
 		<string>nxnative-01006f8002326000</string>
 	</array>
+	<key>LSSupportsGameMode</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>PadHub connects your Nintendo Switch Online GameCube controller to browse your games.</string>
+	<string>PadHub connects your Nintendo Switch Online GameCube controllers over Bluetooth, for its menu and its games.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Melee uses your local network to host or join a game with friends.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>PadHub uses the pictures you pick as game covers.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string></string>
+	</dict>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+		<string>metal</string>
+	</array>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>UIStatusBarHidden</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
-		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>

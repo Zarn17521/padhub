@@ -6,7 +6,11 @@ final class Library: ObservableObject {
   @Published private(set) var games: [Game] = []
   @Published private(set) var hidden: Set<String> = []
   @Published private(set) var installed: Set<String> = []
+  /// Games with a disc waiting in the Import folder.
+  @Published private(set) var discsToImport: Set<String> = []
+  /// The player's own pictures, which win over the box art.
   @Published private(set) var covers: [String: UIImage] = [:]
+  @Published private(set) var boxArt: [String: UIImage] = [:]
 
   private let defaults = UserDefaults.standard
   private static let gamesKey = "PadHubGames"
@@ -15,17 +19,33 @@ final class Library: ObservableObject {
   init() {
     load()
     refreshInstalled()
+    loadBoxArt()
   }
 
   var visibleGames: [Game] { games.filter { !hidden.contains($0.id) } }
 
-  /// Built-in games are shown once installed; added games always are.
+  func cover(for game: Game) -> UIImage? { covers[game.id] ?? boxArt[game.id] }
+
+  /// A built-in game is installed when this build carries its core and its
+  /// module; a game app, when it is on the device. Added games always are.
   func refreshInstalled() {
     var found = Set<String>()
-    for game in games where game.url.map(UIApplication.shared.canOpenURL) ?? false {
-      found.insert(game.id)
+    for game in games {
+      if let embedded = game.embedded {
+        let app = Bundle.main.bundleURL
+        let framework = app.appendingPathComponent("Frameworks/\(embedded.framework).framework")
+        let module = app.appendingPathComponent(embedded.module)
+        if FileManager.default.fileExists(atPath: framework.path),
+          FileManager.default.fileExists(atPath: module.path)
+        {
+          found.insert(game.id)
+        }
+      } else if game.url.map(UIApplication.shared.canOpenURL) ?? false {
+        found.insert(game.id)
+      }
     }
     installed = found
+    discsToImport = Set(games.filter { DiscImports.disc(for: $0) != nil }.map(\.id))
   }
 
   func isInstalled(_ game: Game) -> Bool { game.isCustom || installed.contains(game.id) }
@@ -76,6 +96,50 @@ final class Library: ObservableObject {
   private static func coverURL(for id: String) -> URL {
     let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     return documents.appendingPathComponent("Covers/\(id).jpg")
+  }
+
+  // MARK: Box art, downloaded once and kept
+
+  private static func boxArtURL(for id: String) -> URL {
+    let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    return support.appendingPathComponent("BoxArt/\(id).jpg")
+  }
+
+  private func loadBoxArt() {
+    for game in games where !game.boxArtSources.isEmpty {
+      if let image = UIImage(contentsOfFile: Self.boxArtURL(for: game.id).path) {
+        boxArt[game.id] = image
+      } else {
+        Task { await downloadBoxArt(for: game) }
+      }
+    }
+  }
+
+  @MainActor
+  private func downloadBoxArt(for game: Game) async {
+    for source in game.boxArtSources {
+      guard let download = try? await URLSession.shared.data(from: source.url),
+        (download.1 as? HTTPURLResponse)?.statusCode == 200,
+        let image = UIImage(data: download.0),
+        let cover = source.isFullSleeve ? Self.front(ofSleeve: image) : image,
+        let jpeg = cover.jpegData(compressionQuality: 0.9)
+      else { continue }
+      let url = Self.boxArtURL(for: game.id)
+      try? FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try? jpeg.write(to: url, options: .atomic)
+      withAnimation(.easeInOut(duration: 0.5)) { boxArt[game.id] = cover }
+      return
+    }
+  }
+
+  /// A GameCube sleeve is back, spine and front side by side: the front is its
+  /// right end, as tall as the sleeve and 0.71 times as wide as tall.
+  private static func front(ofSleeve sleeve: UIImage) -> UIImage? {
+    guard let image = sleeve.cgImage else { return nil }
+    let width = Int((Double(image.height) * 0.71).rounded())
+    let rect = CGRect(x: image.width - width, y: 0, width: width, height: image.height)
+    return image.cropping(to: rect).map { UIImage(cgImage: $0) }
   }
 
   // MARK: Storage

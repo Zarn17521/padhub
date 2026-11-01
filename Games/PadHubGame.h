@@ -32,6 +32,10 @@ NS_ASSUME_NONNULL_BEGIN
  * game's own import does. The game is in front. */
 - (void)importDiscAtURL:(NSURL *)url;
 
+/* NO for a game that cannot end once it has run (a Switch game): PadHub then
+ * restarts to start another game. YES when absent. */
+@property(nonatomic, readonly) BOOL canStop;
+
 @end
 
 NS_ASSUME_NONNULL_END

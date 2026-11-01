@@ -2,9 +2,11 @@ import SwiftUI
 import UIKit
 
 /// Runs the games built into PadHub. Each core is a framework (SunPadGame,
-/// MeleePadGame) loaded the first time its game opens. A game shows in a
-/// window above the menu and waits there, paused, while the player is back in
-/// the menu; starting another game ends it first. One game runs at a time.
+/// MeleePadGame, one per Switch game) loaded the first time its game opens. A
+/// game shows in a window above the menu and waits there, paused, while the
+/// player is back in the menu; starting another game ends it first. One game
+/// runs at a time. A Switch game cannot end: once one has run, PadHub restarts
+/// to start another game, and opens it at its next launch.
 @MainActor
 final class GameHost: ObservableObject {
   /// The game in front, or paused behind the menu.
@@ -18,6 +20,9 @@ final class GameHost: ObservableObject {
   var didImportDisc: (() -> Void)?
 
   private var loaded: [String: PadHubGame] = [:]
+  /// The game that cannot end, once it has run in this process.
+  private var unstoppable: String?
+  private static let openAtLaunchKey = "PadHubOpenAtLaunch"
   private var window: UIWindow?
   private weak var menuWindow: UIWindow?
 
@@ -25,6 +30,10 @@ final class GameHost: ObservableObject {
   /// Another game in progress ends first, as when quitting it.
   func open(_ game: Game) {
     guard let embedded = game.embedded else { return }
+    if needsRestart(toOpen: game) {
+      restart(toOpen: game)
+      return
+    }
     if let current, current.id != game.id {
       Log.write("stop \(current.id) to start \(game.id)")
       loaded[current.id]?.stop()
@@ -43,6 +52,7 @@ final class GameHost: ObservableObject {
         return
       }
       loaded[game.id] = instance
+      if instance.canStop == false { unstoppable = game.id }
     }
     Log.write("open \(game.id)")
     willShowGame?()
@@ -73,6 +83,30 @@ final class GameHost: ObservableObject {
       self.menuWindow?.makeKey()
     }
     didReturnToMenu?()
+  }
+
+  /// The paused game can end (a Switch game cannot).
+  var canCloseCurrent: Bool {
+    current.map { $0.id != unstoppable } ?? false
+  }
+
+  /// A game that cannot end has run, and `game` is another one.
+  func needsRestart(toOpen game: Game) -> Bool {
+    unstoppable.map { $0 != game.id } ?? false
+  }
+
+  /// Quits PadHub, which opens `game` at its next launch.
+  func restart(toOpen game: Game) {
+    UserDefaults.standard.set(game.id, forKey: Self.openAtLaunchKey)
+    Log.write("restart to open \(game.id)")
+    exit(0)
+  }
+
+  /// The game a restart asked for, once.
+  static func takeGameToOpenAtLaunch() -> String? {
+    let id = UserDefaults.standard.string(forKey: openAtLaunchKey)
+    UserDefaults.standard.removeObject(forKey: openAtLaunchKey)
+    return id
   }
 
   /// Ends the game paused behind the menu.

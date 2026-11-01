@@ -7,3 +7,7 @@ xcuserdata/
 
 # Game modules made from your own discs: never commit them.
 Modules/
+
+# Switch games prepared by nxnative (build_ipa_from_nsp.py --prepare-xcode): links to
+# their build folders, which hold code made from your own games.
+/Switch/

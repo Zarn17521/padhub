@@ -1,8 +1,9 @@
 # PadHub
 
-One app for the games you made from your own discs on iPhone and iPad:
-Super Mario Sunshine (SunPad) and Super Smash Bros. Melee (MeleePad) are
-built into it, and Switch games packed with nxnative open from it.
+One app for the games you made from your own discs and cartridges on iPhone
+and iPad: Super Mario Sunshine (SunPad), Super Smash Bros. Melee (MeleePad),
+and the Switch games packed with nxnative (Super Mario Bros. Wonder, Animal
+Crossing: New Horizons) all run inside it.
 
 - A carousel of the games' box art over a background that takes the selected
   game's colors, with a launch animation. The box art comes from
@@ -12,9 +13,11 @@ built into it, and Switch games packed with nxnative open from it.
   through [NSOGCKit](https://github.com/pookee/nso-gamecube-ios) (iOS has no
   driver for them), or any controller iOS knows. Touch works too.
 - Leave a game from its menu (Back to PadHub) or with the NSO controller's
-  HOME button: it waits, paused, behind the menu. A to resume it, HOME to go
-  straight back, Close game to end it. Starting another game asks to close
-  the paused one first.
+  HOME button (the house button on a Switch game's touch controls): it waits,
+  paused, behind the menu. A to resume it, HOME to go straight back, Close
+  game to end it. Starting another game asks to close the paused one first.
+  A Switch game cannot end once it has run: to start another game, PadHub
+  closes, and opens that game the next time you open it.
 
 ## How the games fit in one app
 
@@ -41,9 +44,35 @@ installed.
 | Super Mario Sunshine | `gGMSE01_recomp.dylib` | SunPad |
 | Super Smash Bros. Melee | `gGALE01r2_recomp.dylib` and its `.dol-sha256` | MeleePad |
 
-Switch games stay apps of their own for now, opened by URL scheme
-(`nxnative-<title ID in lowercase>://`): nxnative builds each one as a whole
-app around the game's code.
+### Switch games
+
+nxnative prepares each Switch game as an Xcode project around the game's code
+(`build_ipa_from_nsp.py --prepare-xcode`). PadHub builds that code and nxnative's
+iOS host as a framework of its own per game (`Switch<title ID>`, with
+`DM_EMBEDDED=1`), from the prepared project linked at `Switch/<title ID>`
+(ignored by git, like everything made from your games):
+
+```sh
+ln -s "<your game folder>/<title ID>_build/xcode" Switch/<title ID>
+```
+
+The game files (`romfs.img`, several GB) and the shader libraries (`msl`) stay
+out of the app: copy them once into PadHub's data container, from the app that
+nxnative built for that game:
+
+```sh
+app="<your game folder>/<title ID>_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app"
+for item in romfs.img msl; do
+  xcrun devicectl device copy to --device <device> --domain-type appDataContainer \
+    --domain-identifier <your bundle ID> --source "$app/$item" \
+    --destination "Library/Application Support/Switch/<title ID>/$item"
+done
+```
+
+Each Switch game keeps its saves and its log (`log.txt`) in that folder too.
+The Switch games need nxnative's embedding changes (the `pookee/nxnative`
+checkout beside this one) and iOS 26 or later; PadHub asks for the increased
+memory limit for them.
 
 ## Build
 
@@ -57,6 +86,7 @@ switchApple/
   sunpad/              # branch nso-gamecube-controller
   meleepad/
   nso-gamecube-ios/
+  nxnative/
 ```
 
 ```sh

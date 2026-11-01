@@ -42,10 +42,11 @@ struct Game: Identifiable, Codable, Hashable {
   var artID: String?
 
   /// A framework in PadHub.app/Frameworks, and the module made from the
-  /// player's own disc that it needs at the top of PadHub.app.
+  /// player's own disc that it needs at the top of PadHub.app, if any (a
+  /// Switch game's code is in its framework).
   struct Embedded: Codable, Hashable {
     var framework: String
-    var module: String
+    var module: String?
   }
 
   var url: URL? { URL(string: "\(scheme)://") }
@@ -86,11 +87,11 @@ extension Game {
     Game(
       id: "wonder", title: "Super Mario Bros. Wonder", platform: .nintendoSwitch,
       scheme: "nxnative-010015100b514000", colors: ["#7B1FA2", "#FDD835", "#43A047"],
-      symbol: "sparkles", artID: "AQMXA"),
+      symbol: "sparkles", embedded: Embedded(framework: "Switch010015100B514000"), artID: "AQMXA"),
     Game(
       id: "acnh", title: "Animal Crossing: New Horizons", platform: .nintendoSwitch,
       scheme: "nxnative-01006f8002326000", colors: ["#2E7D32", "#FFEE58", "#4FC3F7"],
-      symbol: "leaf.fill", artID: "ACBAA"),
+      symbol: "leaf.fill", embedded: Embedded(framework: "Switch01006F8002326000"), artID: "ACBAA"),
   ]
 
   static let customPalettes: [[String]] = [

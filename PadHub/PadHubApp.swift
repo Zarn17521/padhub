@@ -23,7 +23,8 @@ struct PadHubApp: App {
           if ProcessInfo.processInfo.arguments.contains("-padhubSelfTest") {
             runSelfTest()
           } else {
-            openRequestedGame(Self.launchArgumentGame)
+            // A restart for another game (a Switch game cannot end) opens it now.
+            openRequestedGame(GameHost.takeGameToOpenAtLaunch() ?? Self.launchArgumentGame)
           }
         }
         // padhub://open/<game>, e.g. padhub://open/sunpad from a Shortcut.

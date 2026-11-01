@@ -41,7 +41,7 @@ struct HubView: View {
       }
 
       if let replacing, let paused = host.current {
-        ReplaceGamePrompt(paused: paused, next: replacing) {
+        ReplaceGamePrompt(paused: paused, next: replacing, restart: host.needsRestart(toOpen: replacing)) {
           self.replacing = nil
           launch(replacing, replacingPaused: true)
         } cancel: {
@@ -162,7 +162,7 @@ struct HubView: View {
           .foregroundStyle(.white)
           .contentTransition(.numericText())
         // On a short screen the Close button sits beside the status.
-        let closeButton = host.current?.id == game.id && !host.inFront
+        let closeButton = host.current?.id == game.id && !host.inFront && host.canCloseCurrent
         if layout.compact {
           HStack(spacing: 10) {
             statusText(of: game)
@@ -280,6 +280,10 @@ struct HubView: View {
       replacing = game
       return
     }
+    if host.needsRestart(toOpen: game) {
+      host.restart(toOpen: game)
+      return
+    }
     select(game.id)
     UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
     // Back to a paused game: no need for the whole show.
@@ -301,10 +305,12 @@ struct HubView: View {
   }
 }
 
-/// Starting another game ends the paused one, as on a console.
+/// Starting another game ends the paused one, as on a console. A Switch game
+/// cannot end, so PadHub restarts instead and opens the next game.
 private struct ReplaceGamePrompt: View {
   let paused: Game
   let next: Game
+  let restart: Bool
   let confirm: () -> Void
   let cancel: () -> Void
 
@@ -316,10 +322,13 @@ private struct ReplaceGamePrompt: View {
         Image(systemName: "xmark.circle.fill")
           .font(.system(size: 40, weight: .bold))
           .foregroundStyle(.white.opacity(0.9))
-        Text("Close \(paused.title)?")
+        Text(restart ? "Restart PadHub?" : "Close \(paused.title)?")
           .font(.title2.weight(.bold))
           .foregroundStyle(.white)
-        Text("\(next.title) starts once it is closed. Progress you have not saved in the game is lost.")
+        Text(
+          restart
+            ? "\(paused.title) keeps running until PadHub closes. Open PadHub again and \(next.title) starts. Progress you have not saved in the game is lost."
+            : "\(next.title) starts once it is closed. Progress you have not saved in the game is lost.")
           .font(.subheadline)
           .foregroundStyle(.white.opacity(0.75))
           .multilineTextAlignment(.center)
@@ -331,7 +340,7 @@ private struct ReplaceGamePrompt: View {
           }
           .buttonStyle(.bordered)
           Button(action: confirm) {
-            Label("Close and play", systemImage: "a.circle.fill")
+            Label(restart ? "Close PadHub" : "Close and play", systemImage: "a.circle.fill")
               .frame(minWidth: 150)
           }
           .buttonStyle(.borderedProminent)

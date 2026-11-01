@@ -34,9 +34,9 @@ final class Library: ObservableObject {
       if let embedded = game.embedded {
         let app = Bundle.main.bundleURL
         let framework = app.appendingPathComponent("Frameworks/\(embedded.framework).framework")
-        let module = app.appendingPathComponent(embedded.module)
+        let module = embedded.module.map { app.appendingPathComponent($0).path }
         if FileManager.default.fileExists(atPath: framework.path),
-          FileManager.default.fileExists(atPath: module.path)
+          module.map(FileManager.default.fileExists(atPath:)) ?? true
         {
           found.insert(game.id)
         }

@@ -1,0 +1,52 @@
+From a9cb5d905d2f72bf7b94283aa09e77fe70f55008 Mon Sep 17 00:00:00 2001
+From: pookee <13053375+pookee@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 09:25:49 +0100
+Subject: [PATCH 4/4] A host app can start Melee without the home screen
+
+PadHub's menu is already a home screen, so inside it Melee starts at once
+(playsWithoutHome), as Play on the home screen does. The home still shows
+when the game data or the module is missing, and after Exit to Home.
+playFromHome is public so the host can start a new game after stopping one.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ apple/ios/MeleePadGameViewController.h  | 9 +++++++++
+ apple/ios/MeleePadGameViewController.mm | 2 ++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/apple/ios/MeleePadGameViewController.h b/apple/ios/MeleePadGameViewController.h
+index 3b53947..a37a2e5 100644
+--- a/apple/ios/MeleePadGameViewController.h
++++ b/apple/ios/MeleePadGameViewController.h
+@@ -17,6 +17,15 @@ NS_ASSUME_NONNULL_BEGIN
+  * starts another one. */
+ - (void)stopGame;
+ 
++/* A host app with a menu of its own (PadHub) starts Melee at once, as Play on
++ * the home screen does; the home still shows when the game data is missing,
++ * and after Exit to Home. Set before the view loads. */
++@property(nonatomic) BOOL playsWithoutHome;
++
++/* Play on the home screen: starts the original game, or asks for what it
++ * still needs (the disc, the module). */
++- (void)playFromHome;
++
+ @end
+ 
+ NS_ASSUME_NONNULL_END
+diff --git a/apple/ios/MeleePadGameViewController.mm b/apple/ios/MeleePadGameViewController.mm
+index 2f14e1f..00861e7 100644
+--- a/apple/ios/MeleePadGameViewController.mm
++++ b/apple/ios/MeleePadGameViewController.mm
+@@ -546,6 +546,8 @@ - (void)viewDidLoad {
+         _playRequested = YES;
+         MeleePadLog(@"private Slippi account import completed source=app-sandbox");
+     }
++    if (self.playsWithoutHome)
++        _playRequested = YES;
+     [self startGameIfProvisioned];
+     [self startInputConsumer];
+     [self observeControllers];
+-- 
+2.54.0 (Apple Git-157)
+

@@ -21,11 +21,11 @@ run inside it.
   under PadHub's menu: Resume, Controllers (the controllers connected, their
   player, rumble one to find it, disconnect an NSO controller, the game's
   button mapping), Game settings, PadHub, Quit game. HOME again goes to the hub.
-- A game left for the hub waits there, paused. A to resume it, Close game to
-  end it; starting another game asks to close the paused one first.
-- A Switch game cannot end once it has run. It waits, paused, while a GameCube
-  game runs; to start another Switch game, or to quit it, PadHub closes, and
-  opens the next game the next time you open it.
+- A game left for the hub waits there, paused. A to resume it, Close game (or
+  Quit game in PadHub's menu) to end it; starting another game asks to close
+  the paused one first. Every game ends in-process, its memory freed, so any
+  other game starts without PadHub restarting. Wind Waker starts once per
+  launch of PadHub: starting it again after quitting it restarts PadHub.
 - The hub turns with the phone, upright or sideways; each game keeps to its
   own orientation.
 
@@ -53,6 +53,8 @@ installed.
 |---|---|---|
 | Super Mario Sunshine | `gGMSE01_recomp.dylib` | SunPad |
 | Super Smash Bros. Melee | `gGALE01r2_recomp.dylib` and its `.dol-sha256` | MeleePad |
+| The Legend of Zelda: The Wind Waker | `gGZLE01_recomp.dylib`, with `BlueWakeGame.framework` | BlueWake |
+| Switch games | their code is their framework (`Switch<title ID>`) | nxnative |
 
 ### Switch games
 
@@ -80,24 +82,54 @@ done
 ```
 
 Each Switch game keeps its saves and its log (`log.txt`) in that folder too.
-The Switch games need nxnative's embedding changes (the `pookee/nxnative`
-checkout beside this one) and iOS 26 or later; PadHub asks for the increased
-memory limit for them.
+The Switch games need nxnative with this repository's patch (below) and iOS 26
+or later; PadHub asks for the increased memory limit for them.
+
+Quitting a Switch game stops it in-process (`dm_ios_stop` in the patch): its
+threads end, its memory, files and Metal objects are freed, and the
+framework's writable state goes back to the copy taken when it was loaded, so
+its next start is a fresh boot. If anything cannot stop safely within a few
+seconds, PadHub restarts instead.
 
 ## Build
 
-The games' sources come from sibling checkouts, each provisioned as its own
-README explains (core libraries, `dev-config.plist`, MeleePad's Slippi
-libraries):
+PadHub builds the games from their own projects, checked out beside this one
+at the commits below, with this repository's patches applied: they let each
+game run inside a host app, add NSO GameCube controllers, and let the Switch
+games stop in-process.
 
+| Project | Upstream | Base commit | Patch |
+|---|---|---|---|
+| SunPad (Super Mario Sunshine) | [chrissotraidis/sunpad](https://github.com/chrissotraidis/sunpad) | `98b0439` | `patches/sunpad.patch` |
+| MeleePad (Melee) | [chrissotraidis/meleepad](https://github.com/chrissotraidis/meleepad) | `65d655f` | `patches/meleepad/` |
+| BlueWake (Wind Waker) | [chrissotraidis/bluewake](https://github.com/chrissotraidis/bluewake) | `92f29eb` | `patches/bluewake.patch` |
+| nxnative (Switch games) | [seedds/nxnative](https://github.com/seedds/nxnative) | `5474c6f` | `patches/nxnative.patch` |
+| NSOGCKit | [pookee/nso-gamecube-ios](https://github.com/pookee/nso-gamecube-ios) | `main` | |
+
+```sh
+git clone https://github.com/pookee/padhub
+git clone https://github.com/pookee/nso-gamecube-ios
+git clone https://github.com/chrissotraidis/sunpad
+git -C sunpad checkout -b padhub 98b043920e1bb908dcdf366dec1706eca9b20cd6
+git -C sunpad apply ../padhub/patches/sunpad.patch
+git clone https://github.com/chrissotraidis/meleepad
+git -C meleepad checkout -b padhub 65d655f3d1dba915410ae1b2ff42b667d85a5375
+git -C meleepad am ../padhub/patches/meleepad/*.patch
+git clone https://github.com/chrissotraidis/bluewake
+git -C bluewake checkout -b padhub 92f29ebe6a2b6d0d400ada587341ba5230b35762
+git -C bluewake apply ../padhub/patches/bluewake.patch
+git clone https://github.com/seedds/nxnative
+git -C nxnative checkout -b padhub 5474c6f34789a41770868564fbf4e9e32fc57584
+git -C nxnative apply ../padhub/patches/nxnative.patch
 ```
-switchApple/
-  padhub/
-  sunpad/              # branch nso-gamecube-controller
-  meleepad/
-  nso-gamecube-ios/
-  nxnative/
-```
+
+Then make each game from your own copy, as its project's README explains:
+SunPad's and MeleePad's core libraries, `dev-config.plist` and modules (and
+MeleePad's Slippi libraries), BlueWake's builder for Wind Waker (below), and
+nxnative's preparation for each Switch game (above). Nothing in these
+repositories contains game code or data: modules, discs, keys and anything
+built from them stay on your Mac and your devices. Do not share builds that
+contain them.
 
 ```sh
 xcodegen generate
@@ -131,7 +163,9 @@ from its own menu.
 ### Checking a build
 
 - `-padhubSelfTest` opens each built-in game, goes back to the menu, and
-  switches between them, 30 seconds each.
+  switches between them, 30 seconds each; then it quits each game that stops
+  in-process from PadHub's menu and starts the first one again.
+  `-padhubSelfTestGames wonder,acnh,sunpad` keeps it to those games.
 - `-padhubOpen <game> -padhubGameMenuAfter <seconds>` brings up PadHub's menu
   over the game, and `-padhubGameMenuPage controllers` its controller page,
   for screenshots.
@@ -157,7 +191,19 @@ folder); BlueWake prepares it the first time the game starts.
 
 BlueWake's loop owns the main thread once it starts, so PadHub starts it from
 a run-loop timer and its own screens run inside that loop. NSO GameCube
-controllers reach the game as GameCube pads, by player. Like a Switch game it
-cannot end before PadHub does yet: it waits, paused, while a GameCube game
-runs. The module and any build containing it stay on your devices, as
-BlueWake's rules say.
+controllers reach the game as GameCube pads, by player. Quitting it ends the
+loop as quitting the BlueWake app does (the memory card is written, the
+renderer and audio shut down); PadHub waits for that before starting another
+game. It does not start again in the same launch yet. The module and any build
+containing it stay on your devices, as BlueWake's rules say.
+
+## Credits
+
+PadHub only hosts other people's work: [SunPad](https://github.com/chrissotraidis/sunpad),
+[MeleePad](https://github.com/chrissotraidis/meleepad) and
+[BlueWake](https://github.com/chrissotraidis/bluewake) by chrissotraidis and their
+contributors (built on RecompCore, ModernGekko/Dolphin, Aurora, Dawn and SDL),
+[nxnative](https://github.com/seedds/nxnative) by seedds, and box art from
+[GameTDB](https://www.gametdb.com). NSO GameCube controllers go through
+[NSOGCKit](https://github.com/pookee/nso-gamecube-ios). The patches in `patches/`
+are under each project's own license.

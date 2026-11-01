@@ -1,0 +1,44 @@
+From c2dfa1381f81c21a475ecd0ac5c74d0049fc9c38 Mon Sep 17 00:00:00 2001
+From: pookee <13053375+pookee@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 02:59:08 +0100
+Subject: [PATCH 3/4] A controller plays from the home screen
+
+A or Start on any controller does what Play does, so the home screen no
+longer needs a touch when the game is played with a controller (or from
+a host app such as PadHub).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ apple/ios/MeleePadGameViewController.mm | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/apple/ios/MeleePadGameViewController.mm b/apple/ios/MeleePadGameViewController.mm
+index 16ad9ef..2f14e1f 100644
+--- a/apple/ios/MeleePadGameViewController.mm
++++ b/apple/ios/MeleePadGameViewController.mm
+@@ -334,6 +334,7 @@ @implementation MeleePadGameViewController {
+     UIActivityIndicatorView *_bootActivityIndicator;
+     UIButton *_gameDataImportButton;
+     UIView *_homeView;
++    uint16_t _homeButtons;  // controller buttons down at the last input tick
+     UILabel *_homeStatusLabel;
+     UIButton *_homeSettingsButton;
+     BOOL _playRequested;
+@@ -1956,6 +1957,14 @@ - (void)publishInputSoon {
+ 
+ - (void)publishMergedInput {
+     MeleePadInputState merged = [[MeleePadInputMixer sharedMixer] consumeMergedState];
++    // A controller plays from the home screen too: A or Start, as Play does.
++    uint16_t pressed = merged.buttons & ~_homeButtons;
++    _homeButtons = merged.buttons;
++    if (_homeView != nil && self.presentedViewController == nil &&
++        (pressed & (MeleePadButtonA | MeleePadButtonStart))) {
++        [self playFromHome];
++        return;
++    }
+     MeleePadSettings *settings = [MeleePadSettings sharedSettings];
+     constexpr int kRightStickSmashThreshold = 82;
+     BOOL cStickPastThreshold =
+-- 
+2.54.0 (Apple Git-157)
+

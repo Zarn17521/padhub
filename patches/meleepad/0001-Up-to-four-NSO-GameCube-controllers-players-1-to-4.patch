@@ -1,0 +1,3060 @@
+From 51df238e91533eddadb0c94d56aa2997b613a60a Mon Sep 17 00:00:00 2001
+From: pookee <13053375+pookee@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 01:52:26 +0100
+Subject: [PATCH 1/4] Up to four NSO GameCube controllers, players 1 to 4
+
+iOS has no driver for the Switch 2's NSO GameCube controller. NSOGCKit
+(apple/ios/NSOGC, from pookee/nso-gamecube-ios a6a82e8) connects it over
+Bluetooth LE. The first controller is player one through the input mixer,
+like a GameController pad, which it replaces while connected. Players 2 to 4
+each get their own Dolphin pipe (GCPad2-4) and are plugged into their
+GameCube port while connected, as a cable would (SerialInterface
+ChangeDevice), except during an online match. The buttons map one to one,
+with the triggers' analog travel and end clicks.
+
+Controls menu: the controllers' status, Connect / Disconnect All / Forget,
+and Hide Touch Controls with a Controller. Player one's input is published
+on every report and the input tick is 120 Hz instead of 60 Hz.
+
+Info.plist: Bluetooth usage text, and a meleepad:// launch link for
+launchers.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ MeleePad.xcodeproj/project.pbxproj      |  42 ++
+ apple/ios/Info.plist                    |  13 +
+ apple/ios/MeleePadCoreHost.h            |  10 +
+ apple/ios/MeleePadCoreHost.mm           | 149 +++-
+ apple/ios/MeleePadGameOverlay.mm        | 107 +++
+ apple/ios/MeleePadGameViewController.mm |  58 +-
+ apple/ios/MeleePadNSOGCBridge.h         |  65 ++
+ apple/ios/MeleePadNSOGCBridge.mm        | 218 ++++++
+ apple/ios/NSOGC/NSOGCController.h       |  55 ++
+ apple/ios/NSOGC/NSOGCController.m       | 872 ++++++++++++++++++++++++
+ apple/ios/NSOGC/NSOGCInternal.h         |  45 ++
+ apple/ios/NSOGC/NSOGCKit.h              |   6 +
+ apple/ios/NSOGC/NSOGCManager.h          |  85 +++
+ apple/ios/NSOGC/NSOGCManager.m          | 566 +++++++++++++++
+ apple/ios/NSOGC/README.md               |  10 +
+ apple/ios/NSOGC/nsogc_protocol.c        | 245 +++++++
+ apple/ios/NSOGC/nsogc_protocol.h        | 143 ++++
+ 17 files changed, 2660 insertions(+), 29 deletions(-)
+ create mode 100644 apple/ios/MeleePadNSOGCBridge.h
+ create mode 100644 apple/ios/MeleePadNSOGCBridge.mm
+ create mode 100644 apple/ios/NSOGC/NSOGCController.h
+ create mode 100644 apple/ios/NSOGC/NSOGCController.m
+ create mode 100644 apple/ios/NSOGC/NSOGCInternal.h
+ create mode 100644 apple/ios/NSOGC/NSOGCKit.h
+ create mode 100644 apple/ios/NSOGC/NSOGCManager.h
+ create mode 100644 apple/ios/NSOGC/NSOGCManager.m
+ create mode 100644 apple/ios/NSOGC/README.md
+ create mode 100644 apple/ios/NSOGC/nsogc_protocol.c
+ create mode 100644 apple/ios/NSOGC/nsogc_protocol.h
+
+diff --git a/MeleePad.xcodeproj/project.pbxproj b/MeleePad.xcodeproj/project.pbxproj
+index 754c72a..c6728af 100644
+--- a/MeleePad.xcodeproj/project.pbxproj
++++ b/MeleePad.xcodeproj/project.pbxproj
+@@ -68,6 +68,11 @@
+ 		AA0000000000000000000145 /* StaticRecompSettings.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000259 /* StaticRecompSettings.cpp */; settings = {COMPILER_FLAGS = "-iquote $(SRCROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source -I$(SRCROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source"; }; };
+ 		AA0000000000000000000146 /* Interpreter_LoadStore.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000025A /* Interpreter_LoadStore.cpp */; settings = {COMPILER_FLAGS = "-iquote $(SRCROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source -I$(SRCROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source"; }; };
+ 		AA0000000000000000000147 /* StateFile.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000025B /* StateFile.cpp */; settings = {COMPILER_FLAGS = "-iquote $(SRCROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source -I$(SRCROOT)/ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source -I$(SRCROOT)/ref/ModernGekko/vendor/dolphin/Externals/LZO -I$(SRCROOT)/ref/ModernGekko/vendor/dolphin/Externals/lz4/lz4/lib"; }; };
++		CC0000000000000000000101 /* MeleePadNSOGCBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000201 /* MeleePadNSOGCBridge.mm */; };
++		CC0000000000000000000102 /* nsogc_protocol.c in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000211 /* nsogc_protocol.c */; };
++		CC0000000000000000000103 /* NSOGCController.m in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000213 /* NSOGCController.m */; };
++		CC0000000000000000000104 /* NSOGCManager.m in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000215 /* NSOGCManager.m */; };
++		CC0000000000000000000105 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000220 /* CoreBluetooth.framework */; };
+ /* End PBXBuildFile section */
+ 
+ /* Begin PBXFileReference section */
+@@ -147,6 +152,18 @@
+ 		AA0000000000000000000259 /* StaticRecompSettings.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ref/ModernGekko/vendor/dolphin/Source/Core/Core/Config/StaticRecompSettings.cpp; sourceTree = SOURCE_ROOT; };
+ 		AA000000000000000000025A /* Interpreter_LoadStore.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Core/PowerPC/Interpreter_LoadStore.cpp; sourceTree = "<group>"; };
+ 		AA000000000000000000025B /* StateFile.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ref/ModernGekko/vendor/dolphin/Source/Core/Core/StateFile.cpp; sourceTree = SOURCE_ROOT; };
++		CC0000000000000000000201 /* MeleePadNSOGCBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MeleePadNSOGCBridge.mm; sourceTree = "<group>"; };
++		CC0000000000000000000202 /* MeleePadNSOGCBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MeleePadNSOGCBridge.h; sourceTree = "<group>"; };
++		CC0000000000000000000211 /* nsogc_protocol.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = nsogc_protocol.c; sourceTree = "<group>"; };
++		CC0000000000000000000212 /* nsogc_protocol.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = nsogc_protocol.h; sourceTree = "<group>"; };
++		CC0000000000000000000213 /* NSOGCController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NSOGCController.m; sourceTree = "<group>"; };
++		CC0000000000000000000214 /* NSOGCController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NSOGCController.h; sourceTree = "<group>"; };
++		CC0000000000000000000215 /* NSOGCManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NSOGCManager.m; sourceTree = "<group>"; };
++		CC0000000000000000000216 /* NSOGCManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NSOGCManager.h; sourceTree = "<group>"; };
++		CC0000000000000000000217 /* NSOGCInternal.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NSOGCInternal.h; sourceTree = "<group>"; };
++		CC0000000000000000000218 /* NSOGCKit.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NSOGCKit.h; sourceTree = "<group>"; };
++		CC0000000000000000000219 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
++		CC0000000000000000000220 /* CoreBluetooth.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = SDKROOT; };
+ /* End PBXFileReference section */
+ 
+ /* Begin PBXFrameworksBuildPhase section */
+@@ -168,6 +185,7 @@
+ 				AA0000000000000000000111 /* QuartzCore.framework in Frameworks */,
+ 				AA0000000000000000000110 /* CoreGraphics.framework in Frameworks */,
+ 				AA0000000000000000000109 /* GameController.framework in Frameworks */,
++				CC0000000000000000000105 /* CoreBluetooth.framework in Frameworks */,
+ 				AA0000000000000000000108 /* MetalKit.framework in Frameworks */,
+ 				AA0000000000000000000107 /* Metal.framework in Frameworks */,
+ 				AA0000000000000000000106 /* UIKit.framework in Frameworks */,
+@@ -210,6 +228,9 @@
+ 				AA0000000000000000000211 /* MeleePadGameViewController.h */,
+ 				AA0000000000000000000203 /* MeleePadGameOverlay.mm */,
+ 				AA0000000000000000000210 /* MeleePadGameOverlay.h */,
++				CC0000000000000000000201 /* MeleePadNSOGCBridge.mm */,
++				CC0000000000000000000202 /* MeleePadNSOGCBridge.h */,
++				CC0000000000000000000401 /* NSOGC */,
+ 				AA0000000000000000000238 /* MeleePadOnlinePlayViewController.mm */,
+ 				AA0000000000000000000239 /* MeleePadOnlinePlayViewController.h */,
+ 				AA0000000000000000000240 /* MeleePadPublicLobbyClient.m */,
+@@ -262,6 +283,7 @@
+ 				AA0000000000000000000207 /* Metal.framework */,
+ 				AA0000000000000000000208 /* MetalKit.framework */,
+ 				AA0000000000000000000209 /* GameController.framework */,
++				CC0000000000000000000220 /* CoreBluetooth.framework */,
+ 			);
+ 			name = Frameworks;
+ 			sourceTree = "<group>";
+@@ -306,6 +328,22 @@
+ 			path = ref/ModernGekko/vendor/dolphin/SlippiAdapter/Source;
+ 			sourceTree = SOURCE_ROOT;
+ 		};
++		CC0000000000000000000401 /* NSOGC */ = {
++			isa = PBXGroup;
++			children = (
++				CC0000000000000000000219 /* README.md */,
++				CC0000000000000000000218 /* NSOGCKit.h */,
++				CC0000000000000000000212 /* nsogc_protocol.h */,
++				CC0000000000000000000211 /* nsogc_protocol.c */,
++				CC0000000000000000000214 /* NSOGCController.h */,
++				CC0000000000000000000213 /* NSOGCController.m */,
++				CC0000000000000000000216 /* NSOGCManager.h */,
++				CC0000000000000000000215 /* NSOGCManager.m */,
++				CC0000000000000000000217 /* NSOGCInternal.h */,
++			);
++			path = NSOGC;
++			sourceTree = "<group>";
++		};
+ /* End PBXGroup section */
+ 
+ /* Begin PBXNativeTarget section */
+@@ -391,6 +429,10 @@
+ 				AA0000000000000000000126 /* MeleePadOnlinePlayViewController.mm in Sources */,
+ 				AA0000000000000000000127 /* MeleePadPublicLobbyClient.m in Sources */,
+ 				AA0000000000000000000104 /* MeleePadSettings.mm in Sources */,
++				CC0000000000000000000101 /* MeleePadNSOGCBridge.mm in Sources */,
++				CC0000000000000000000102 /* nsogc_protocol.c in Sources */,
++				CC0000000000000000000103 /* NSOGCController.m in Sources */,
++				CC0000000000000000000104 /* NSOGCManager.m in Sources */,
+ 				AA0000000000000000000128 /* MeleePadSlippiHost.mm in Sources */,
+ 				AA0000000000000000000129 /* slippi-direct-probe.cpp in Sources */,
+ 				AA0000000000000000000130 /* SlippiDirectCodes.cpp in Sources */,
+diff --git a/apple/ios/Info.plist b/apple/ios/Info.plist
+index b3582ed..12bf5f4 100644
+--- a/apple/ios/Info.plist
++++ b/apple/ios/Info.plist
+@@ -30,6 +30,19 @@
+ 	<true/>
+ 	<key>GCSupportsGameMode</key>
+ 	<true/>
++	<key>NSBluetoothAlwaysUsageDescription</key>
++	<string>MeleePad connects your Nintendo Switch Online GameCube controllers over Bluetooth.</string>
++	<key>CFBundleURLTypes</key>
++	<array>
++		<dict>
++			<key>CFBundleURLName</key>
++			<string>MeleePad launch</string>
++			<key>CFBundleURLSchemes</key>
++			<array>
++				<string>meleepad</string>
++			</array>
++		</dict>
++	</array>
+ 	<key>LSSupportsOpeningDocumentsInPlace</key>
+ 	<true/>
+ 	<key>NSLocalNetworkUsageDescription</key>
+diff --git a/apple/ios/MeleePadCoreHost.h b/apple/ios/MeleePadCoreHost.h
+index 7e2154b..329551a 100644
+--- a/apple/ios/MeleePadCoreHost.h
++++ b/apple/ios/MeleePadCoreHost.h
+@@ -67,6 +67,16 @@ NS_ASSUME_NONNULL_BEGIN
+  * device. Safe to call from any thread at ~60 Hz. */
+ - (void)publishInput:(MeleePadInputState)input;
+ 
++/* Players 2 to 4: GameCube ports 1-3 (0-based), each with its own pipe, fed by
++ * NSO GameCube controllers. Writes to the running core host's pipe for that
++ * port; call from one thread per port. */
+++ (void)publishInput:(MeleePadInputState)input port:(NSInteger)port;
++
++/* Plugs a standard controller into GameCube port 1-3 (players 2-4) or unplugs
++ * it, as a cable would. A port plugged before boot is applied at boot. Main
++ * thread. */
++- (void)setControllerConnected:(BOOL)connected port:(NSInteger)port;
++
+ /* Applies the render-resolution scale (1 = native GameCube EFB, 2..4 = scale)
+  * to the running runtime. Safe to call from any thread. */
+ - (void)setRenderScale:(NSInteger)scale;
+diff --git a/apple/ios/MeleePadCoreHost.mm b/apple/ios/MeleePadCoreHost.mm
+index 7a07fcf..3320fa7 100644
+--- a/apple/ios/MeleePadCoreHost.mm
++++ b/apple/ios/MeleePadCoreHost.mm
+@@ -4,6 +4,7 @@
+ #import "../shared/MeleePadBenchmarkRoute.h"
+ #import "MeleePadDiagnostics.h"
+ #import "MeleePadInputPipeEncoder.h"
++#import "MeleePadSettings.h"
+ 
+ #import <AVFAudio/AVFAudio.h>
+ #import <Metal/Metal.h>
+@@ -45,6 +46,8 @@
+ #include "Core/Config/StaticRecompSettings.h"
+ #include "Core/Config/GraphicsSettings.h"
+ #include "Core/HW/Memmap.h"
++#include "Core/HW/SI/SI.h"
++#include "Core/HW/SI/SI_Device.h"
+ #include "Core/PowerPC/PowerPC.h"
+ #include "Core/System.h"
+ #include "UICommon/UICommon.h"
+@@ -92,6 +95,51 @@ static void MeleePadRuntimeLogCallback(
+ 
+ static NSString *const MeleePadUnlockAllCodeName = @"$All Characters and Stages";
+ 
++/* GameCube ports 1-3 (players 2-4) for NSO GameCube controllers. The running
++ * core host publishes its pipe ends here, so writers on other threads never
++ * touch a core host that is being replaced; plugged ports outlive restarts. */
++static constexpr int MeleePadPortCount = 4;
++static std::atomic<int> gMeleePadPortPipes[MeleePadPortCount] = {-1, -1, -1, -1};
++static uint16_t gMeleePadPortLastButtons[MeleePadPortCount];
++static std::atomic<bool> gMeleePadPortConnected[MeleePadPortCount];
++
++static NSString *MeleePadPortPipeName(int port) {
++    return port == 0 ? @"meleepad" : [NSString stringWithFormat:@"meleepad%d", port + 1];
++}
++
++/* Dolphin's pipe backend has no default bindings: one stable mapping per pad. */
++static NSString *MeleePadPipePadSection(int port) {
++    return [NSString stringWithFormat:
++        @"[GCPad%d]\n"
++         "Device = Pipe/0/%@\n"
++         "Buttons/A = `Button A`\n"
++         "Buttons/B = `Button B`\n"
++         "Buttons/X = `Button X`\n"
++         "Buttons/Y = `Button Y`\n"
++         "Buttons/Z = `Button Z`\n"
++         "Buttons/Start = `Button START`\n"
++         "Main Stick/Up = `Axis MAIN Y -`\n"
++         "Main Stick/Down = `Axis MAIN Y +`\n"
++         "Main Stick/Left = `Axis MAIN X -`\n"
++         "Main Stick/Right = `Axis MAIN X +`\n"
++         "Main Stick/Calibration = 100.00\n"
++         "C-Stick/Up = `Axis C Y -`\n"
++         "C-Stick/Down = `Axis C Y +`\n"
++         "C-Stick/Left = `Axis C X -`\n"
++         "C-Stick/Right = `Axis C X +`\n"
++         "C-Stick/Calibration = 100.00\n"
++         "Triggers/L = `Axis L +`\n"
++         "Triggers/R = `Axis R +`\n"
++         "Triggers/L-Analog = `Axis L +`\n"
++         "Triggers/R-Analog = `Axis R +`\n"
++         "D-Pad/Up = `Button D_UP`\n"
++         "D-Pad/Down = `Button D_DOWN`\n"
++         "D-Pad/Left = `Button D_LEFT`\n"
++         "D-Pad/Right = `Button D_RIGHT`\n"
++         "Options/Always Connected = True\n",
++        port + 1, MeleePadPortPipeName(port)];
++}
++
+ /* Maintain only MeleePad's named activation in Dolphin's local GameINI. The
+  * bundled Action Replay definition remains Dolphin-owned; this file merely
+  * selects it. Unrelated user sections and code selections are preserved. */
+@@ -320,6 +368,13 @@ - (void)startWithGameRoot:(NSString *)gameRoot
+     ::unlink(pipePath.fileSystemRepresentation);
+     int fifoResult = ::mkfifo(pipePath.fileSystemRepresentation, 0666);
+     MeleePadLog(@"input pipe create result=%d errno=%d", fifoResult, fifoResult == 0 ? 0 : errno);
++    // Players 2-4's pipes, read by GCPad2-4. Their ports stay unplugged until
++    // an NSO GameCube controller takes them.
++    for (int port = 1; port < MeleePadPortCount; ++port) {
++        NSString *portPipe = [pipeDir stringByAppendingPathComponent:MeleePadPortPipeName(port)];
++        ::unlink(portPipe.fileSystemRepresentation);
++        ::mkfifo(portPipe.fileSystemRepresentation, 0666);
++    }
+ 
+     // This is a dedicated virtual GameCube controller. Dolphin's pipe backend
+     // is present in the iOS core, but it has no default bindings, so provide
+@@ -329,34 +384,9 @@ - (void)startWithGameRoot:(NSString *)gameRoot
+                               withIntermediateDirectories:YES
+                                                attributes:nil
+                                                     error:nil];
+-    NSString *padConfig =
+-        @"[GCPad1]\n"
+-         "Device = Pipe/0/meleepad\n"
+-         "Buttons/A = `Button A`\n"
+-         "Buttons/B = `Button B`\n"
+-         "Buttons/X = `Button X`\n"
+-         "Buttons/Y = `Button Y`\n"
+-         "Buttons/Z = `Button Z`\n"
+-         "Buttons/Start = `Button START`\n"
+-         "Main Stick/Up = `Axis MAIN Y -`\n"
+-         "Main Stick/Down = `Axis MAIN Y +`\n"
+-         "Main Stick/Left = `Axis MAIN X -`\n"
+-         "Main Stick/Right = `Axis MAIN X +`\n"
+-         "Main Stick/Calibration = 100.00\n"
+-         "C-Stick/Up = `Axis C Y -`\n"
+-         "C-Stick/Down = `Axis C Y +`\n"
+-         "C-Stick/Left = `Axis C X -`\n"
+-         "C-Stick/Right = `Axis C X +`\n"
+-         "C-Stick/Calibration = 100.00\n"
+-         "Triggers/L = `Axis L +`\n"
+-         "Triggers/R = `Axis R +`\n"
+-         "Triggers/L-Analog = `Axis L +`\n"
+-         "Triggers/R-Analog = `Axis R +`\n"
+-         "D-Pad/Up = `Button D_UP`\n"
+-         "D-Pad/Down = `Button D_DOWN`\n"
+-         "D-Pad/Left = `Button D_LEFT`\n"
+-         "D-Pad/Right = `Button D_RIGHT`\n"
+-         "Options/Always Connected = True\n";
++    NSMutableString *padConfig = [NSMutableString string];
++    for (int port = 0; port < MeleePadPortCount; ++port)
++        [padConfig appendString:MeleePadPipePadSection(port)];
+     [padConfig writeToFile:[configDirectory stringByAppendingPathComponent:@"GCPadNew.ini"]
+                  atomically:YES
+                    encoding:NSUTF8StringEncoding
+@@ -517,6 +547,15 @@ - (void)runGameWithGameRoot:(NSString *)gameRoot
+         Config::SetBase(Config::MAIN_ENABLE_CHEATS,
+                         offlineCheatsAllowed && hasEnabledOfflineCode);
+         MeleePadLog(@"runtime offline cheats active=%d", offlineCheatsAllowed && hasEnabledOfflineCode);
++        // NSO GameCube controllers that took players 2-4 before boot. Only
++        // plugged ports are set, so netplay's own port layout is untouched.
++        for (int port = 1; port < MeleePadPortCount; ++port) {
++            if (!gMeleePadPortConnected[port].load())
++                continue;
++            Config::SetCurrent(Config::GetInfoForSIDevice(port),
++                               SerialInterface::SIDEVICE_GC_CONTROLLER);
++            MeleePadLog(@"controller port=%d plugged at boot", port + 1);
++        }
+         {
+             std::scoped_lock lock(*_runtimeMutex);
+             _runtime = created.runtime.get();
+@@ -566,6 +605,19 @@ - (void)runGameWithGameRoot:(NSString *)gameRoot
+         if (_pipeFd < 0)
+             MeleePadLog(@"input pipe unavailable after wait errno=%d stopRequested=%d", errno,
+                       _stopRequested->load());
++        for (int port = 1; port < MeleePadPortCount && _pipeFd >= 0; ++port) {
++            NSString *portPipe = [[userDirectory stringByAppendingPathComponent:@"Pipes"]
++                stringByAppendingPathComponent:MeleePadPortPipeName(port)];
++            int fd = -1;
++            for (int attempt = 0; attempt < 20 && fd < 0 && !_stopRequested->load(); ++attempt) {
++                fd = ::open(portPipe.fileSystemRepresentation, O_WRONLY | O_NONBLOCK);
++                if (fd < 0)
++                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
++            }
++            gMeleePadPortLastButtons[port] = 0;
++            gMeleePadPortPipes[port].store(fd);
++            MeleePadLog(@"input pipe port=%d connected=%d", port + 1, fd >= 0);
++        }
+ 
+         // Run() marks the ModernGekko runtime active before booting. Re-apply
+         // any lifecycle state on the main queue so a resign-active event that
+@@ -600,11 +652,52 @@ - (void)runGameWithGameRoot:(NSString *)gameRoot
+             ::close(_pipeFd);
+             _pipeFd = -1;
+         }
++        for (int port = 1; port < MeleePadPortCount; ++port) {
++            int fd = gMeleePadPortPipes[port].exchange(-1);
++            if (fd >= 0)
++                ::close(fd);
++        }
+     }
+     *_running = false;
+     *_starting = false;
+ }
+ 
+++ (void)publishInput:(MeleePadInputState)input port:(NSInteger)port {
++    if (port < 1 || port >= MeleePadPortCount)
++        return;
++    int fd = gMeleePadPortPipes[port].load();
++    if (fd < 0)
++        return;
++    BOOL modernCStick = [MeleePadSettings sharedSettings].modernCStickHorizontal;
++    std::string commands =
++        MeleePadEncodePipeCommands(input, gMeleePadPortLastButtons[port], modernCStick);
++    if (commands.empty())
++        return;
++    ssize_t written = ::write(fd, commands.data(), commands.size());
++    // As for player one: edges advance only once the whole message is in.
++    if (written == static_cast<ssize_t>(commands.size()))
++        gMeleePadPortLastButtons[port] = input.buttons;
++}
++
++- (void)setControllerConnected:(BOOL)connected port:(NSInteger)port {
++    if (port < 1 || port >= MeleePadPortCount)
++        return;
++    if (gMeleePadPortConnected[port].exchange(connected) == static_cast<bool>(connected))
++        return;
++    auto &system = Core::System::GetInstance();
++    if (!Core::IsRunning(system)) {
++        MeleePadLog(@"controller port=%ld %@ at next boot", (long)port + 1,
++                    connected ? @"plugged" : @"unplugged");
++        return;
++    }
++    // As Dolphin's own controller settings do while a game runs.
++    const auto device = connected ? SerialInterface::SIDEVICE_GC_CONTROLLER
++                                  : SerialInterface::SIDEVICE_NONE;
++    Config::SetCurrent(Config::GetInfoForSIDevice(static_cast<int>(port)), device);
++    system.GetSerialInterface().ChangeDevice(device, static_cast<int>(port));
++    MeleePadLog(@"controller port=%ld %@", (long)port + 1, connected ? @"plugged" : @"unplugged");
++}
++
+ - (void)publishInput:(MeleePadInputState)input {
+     if (_pipeFd < 0)
+         return;
+diff --git a/apple/ios/MeleePadGameOverlay.mm b/apple/ios/MeleePadGameOverlay.mm
+index 556790c..4526dac 100644
+--- a/apple/ios/MeleePadGameOverlay.mm
++++ b/apple/ios/MeleePadGameOverlay.mm
+@@ -3,6 +3,7 @@
+ 
+ #import "MeleePadDiagnostics.h"
+ #import "MeleePadInputMixer.h"
++#import "MeleePadNSOGCBridge.h"
+ #import "MeleePadSettings.h"
+ 
+ #import <GameController/GameController.h>
+@@ -751,6 +752,20 @@ - (UIMenu *)buildMenuForStartup:(BOOL)startup {
+     }];
+     dpadAction.state = [NSUserDefaults.standardUserDefaults boolForKey:@"MeleePadShowDPad"]
+         ? UIMenuElementStateOn : UIMenuElementStateOff;
++    UIAction *hideTouchAction =
++        [UIAction actionWithTitle:@"Hide Touch Controls with a Controller"
++                            image:[UIImage systemImageNamed:@"eye.slash"]
++                       identifier:nil handler:^(__kindof UIAction *action) {
++        (void)action;
++        MeleePadSettings *currentSettings = [MeleePadSettings sharedSettings];
++        currentSettings.hideTouchControlsWhenControllerConnected =
++            !currentSettings.hideTouchControlsWhenControllerConnected;
++        [currentSettings synchronize];
++        [weakSelf syncHideControlsSwitch];
++        [weakSelf refreshMenuButton];
++    }];
++    hideTouchAction.state = [MeleePadSettings sharedSettings].hideTouchControlsWhenControllerConnected ?
++        UIMenuElementStateOn : UIMenuElementStateOff;
+     UIMenu *controlsMenu = [UIMenu menuWithTitle:@"Controls"
+                                            image:[UIImage systemImageNamed:@"gamecontroller"]
+                                       identifier:nil
+@@ -768,6 +783,13 @@ - (UIMenu *)buildMenuForStartup:(BOOL)startup {
+             (void)action;
+             [weakSelf toggleSettingsPanel];
+         }],
++        hideTouchAction,
++        // Built when the menu opens, so it shows the controllers as they are now.
++        [UIDeferredMenuElement elementWithUncachedProvider:^(
++                                   void (^completion)(NSArray<UIMenuElement *> *elements)) {
++            MeleePadGameOverlay *strongSelf = weakSelf;
++            completion(strongSelf != nil ? @[[strongSelf nsoControllerMenu]] : @[]);
++        }],
+     ]];
+ 
+     UIAction *onlinePlayAction =
+@@ -1091,6 +1113,89 @@ - (UIAction *)renderAction:(NSString *)title scale:(NSInteger)scale {
+     return renderAction;
+ }
+ 
++- (void)syncHideControlsSwitch {
++    _hideControlsSwitch.on = [MeleePadSettings sharedSettings].hideTouchControlsWhenControllerConnected;
++    [self applyControllerVisibility];
++}
++
++// The NSO GameCube controllers' section of the Controls menu.
++- (UIMenu *)nsoControllerMenu {
++    __weak MeleePadGameOverlay *weakSelf = self;
++    MeleePadNSOGCBridge *bridge = [MeleePadNSOGCBridge sharedBridge];
++    MeleePadNSOGCStatus status = bridge.status;
++    NSMutableArray<UIMenuElement *> *children = [NSMutableArray array];
++
++    void (^addInfo)(NSString *, NSString *) = ^(NSString *title, NSString *image) {
++        UIAction *info = [UIAction actionWithTitle:title
++                                             image:[UIImage systemImageNamed:image]
++                                        identifier:nil
++                                           handler:^(__kindof UIAction *action) { (void)action; }];
++        info.attributes = UIMenuElementAttributesDisabled;
++        [children addObject:info];
++    };
++    switch (status) {
++        case MeleePadNSOGCStatusConnected:
++            for (NSString *description in bridge.connectedDescriptions)
++                addInfo(description, @"checkmark.circle.fill");
++            if (bridge.connectedCount < 4)
++                addInfo(@"Another player: press SYNC on their controller", @"plus.circle");
++            break;
++        case MeleePadNSOGCStatusSearching:
++            addInfo(@"Searching: press SYNC on the controller", @"dot.radiowaves.left.and.right");
++            break;
++        case MeleePadNSOGCStatusUnavailable:
++            addInfo(@"Bluetooth is off or not allowed", @"exclamationmark.triangle");
++            break;
++        case MeleePadNSOGCStatusOff:
++            addInfo(@"Off", @"power");
++            break;
++    }
++
++    if (status == MeleePadNSOGCStatusOff) {
++        [children addObject:[UIAction actionWithTitle:@"Connect"
++                                                image:[UIImage systemImageNamed:@"link"]
++                                           identifier:nil handler:^(__kindof UIAction *action) {
++            (void)action;
++            [[MeleePadNSOGCBridge sharedBridge] connect];
++            [weakSelf showNSOControllerPairingHint];
++        }]];
++    } else {
++        NSString *title = status == MeleePadNSOGCStatusConnected ? @"Disconnect All" : @"Stop Searching";
++        [children addObject:[UIAction actionWithTitle:title
++                                                image:[UIImage systemImageNamed:@"xmark.circle"]
++                                           identifier:nil handler:^(__kindof UIAction *action) {
++            (void)action;
++            [[MeleePadNSOGCBridge sharedBridge] disconnect];
++        }]];
++    }
++    if (bridge.hasRememberedControllers) {
++        UIAction *forgetAction = [UIAction actionWithTitle:@"Forget Controllers"
++                                                     image:[UIImage systemImageNamed:@"trash"]
++                                                identifier:nil handler:^(__kindof UIAction *action) {
++            (void)action;
++            [[MeleePadNSOGCBridge sharedBridge] forgetControllers];
++        }];
++        forgetAction.attributes = UIMenuElementAttributesDestructive;
++        [children addObject:forgetAction];
++    }
++    return [UIMenu menuWithTitle:@"NSO GameCube Controllers"
++                           image:[UIImage systemImageNamed:@"gamecontroller.fill"]
++                      identifier:nil
++                         options:0
++                        children:children];
++}
++
++- (void)showNSOControllerPairingHint {
++    UIAlertController *alert = [UIAlertController
++        alertControllerWithTitle:@"Pair the Controllers"
++                         message:@"Press the small SYNC button on each NSO GameCube controller, "
++                                 @"one after the other. The first becomes player 1, the next "
++                                 @"players 2 to 4."
++                  preferredStyle:UIAlertControllerStyleAlert];
++    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
++    [self.window.rootViewController presentViewController:alert animated:YES completion:nil];
++}
++
+ - (void)refreshMenuButton {
+     _menuButton.menu = [self buildMenu];
+ }
+@@ -2086,6 +2191,8 @@ - (void)applyControllerVisibility {
+             break;
+         }
+     }
++    if ([MeleePadNSOGCBridge sharedBridge].playerOneConnected)
++        controllerConnected = YES;
+     BOOL shouldHide = !_editingLayout && controllerConnected &&
+         [MeleePadSettings sharedSettings].hideTouchControlsWhenControllerConnected;
+     [self setTouchControlsHidden:shouldHide animated:YES];
+diff --git a/apple/ios/MeleePadGameViewController.mm b/apple/ios/MeleePadGameViewController.mm
+index b11b7d2..51bf1de 100644
+--- a/apple/ios/MeleePadGameViewController.mm
++++ b/apple/ios/MeleePadGameViewController.mm
+@@ -7,6 +7,7 @@
+ #import "MeleePadDiscExtractor.h"
+ #import "MeleePadGameOverlay.h"
+ #import "MeleePadInputMixer.h"
++#import "MeleePadNSOGCBridge.h"
+ #import "MeleePadOnlinePlayViewController.h"
+ #import "MeleePadPublicLobbyClient.h"
+ #import "MeleePadSettings.h"
+@@ -26,6 +27,7 @@
+ #include <pthread.h>
+ #include <sys/resource.h>
+ #include <algorithm>
++#include <atomic>
+ #include <cmath>
+ #include <unordered_map>
+ #include <vector>
+@@ -320,6 +322,7 @@ @implementation MeleePadGameViewController {
+     MeleePadSlippiHost *_slippiHost;
+     MeleePadGameOverlay *_overlay;
+     dispatch_source_t _controllerTimer;
++    std::atomic<bool> _inputPublishPending;
+     UILabel *_fpsLabel;
+     UIView *_connectionBanner;
+     UILabel *_connectionBannerText;
+@@ -874,6 +877,7 @@ - (void)observeControllers {
+                                                  name:GCControllerDidDisconnectNotification
+                                                object:nil];
+     [self reconcileControllersForReason:@"launch"];
++    [self startNSOControllers];
+     if (GCController.controllers.count == 0) {
+         MeleePadLog(@"controller discovery started reason=launch");
+         __weak MeleePadGameViewController *weakSelf = self;
+@@ -940,6 +944,36 @@ - (void)configureController:(GCController *)controller playerSlot:(NSInteger)slo
+     [self publishInputFromController:controller gamepad:gamepad];
+ }
+ 
++// NSO GameCube controllers have no iOS driver; MeleePad connects up to four
++// itself. The first is player one, the others take ports 2-4.
++- (void)startNSOControllers {
++    __weak MeleePadGameViewController *weakSelf = self;
++    MeleePadNSOGCBridge *bridge = [MeleePadNSOGCBridge sharedBridge];
++    bridge.connectionChangedHandler = ^{
++        MeleePadGameViewController *strongSelf = weakSelf;
++        if (strongSelf != nil)
++            [strongSelf->_overlay refreshControllerVisibility];
++    };
++    bridge.playerOneInputHandler = ^{
++        [weakSelf publishInputSoon];
++    };
++    bridge.portInputHandler = ^(NSInteger port, MeleePadInputState state) {
++        [MeleePadCoreHost publishInput:state port:port];
++    };
++    bridge.portConnectionHandler = ^(NSInteger port, BOOL connected) {
++        MeleePadGameViewController *strongSelf = weakSelf;
++        if (strongSelf == nil)
++            return;
++        // Online matches keep the port layout Slippi set up.
++        if (connected && strongSelf->_slippiHost.isRunning) {
++            MeleePadLog(@"nsogc player %ld not plugged in during an online match", (long)port + 1);
++            return;
++        }
++        [strongSelf->_coreHost setControllerConnected:connected port:port];
++    };
++    [bridge start];
++}
++
+ - (void)publishInputFromController:(GCController *)controller
+                            gamepad:(GCExtendedGamepad *)gamepad {
+     NSArray<GCController *> *currentControllers = GCController.controllers;
+@@ -955,6 +989,9 @@ - (void)publishInputFromController:(GCController *)controller
+     uintptr_t instance = MeleePadControllerInstanceID(controller);
+     if (_controllerSlots.SlotFor(instance) != 0)
+         return;
++    // A connected NSO GameCube controller is player one.
++    if ([MeleePadNSOGCBridge sharedBridge].playerOneConnected)
++        return;
+ 
+     // Every callback is a complete snapshot. Leaving buttons uninitialized
+     // made random button edges overflow the old fixed-size pipe buffer.
+@@ -979,6 +1016,7 @@ - (void)publishInputFromController:(GCController *)controller
+     if (state.triggerL > 30) state.buttons |= MeleePadButtonL;
+     if (physicalTriggerR > 30) state.buttons |= MeleePadButtonR;
+     [[MeleePadInputMixer sharedMixer] setInputState:state fromTouch:NO];
++    [self publishInputSoon];
+ }
+ 
+ - (void)reconcileControllersForReason:(NSString *)reason {
+@@ -1883,10 +1921,12 @@ - (void)startInputConsumer {
+     }
+     if (_controllerTimer)
+         return;
++    // 120 Hz; controllers also publish as soon as they report
++    // (publishInputSoon).
+     _controllerTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+                                               dispatch_get_main_queue());
+     dispatch_source_set_timer(_controllerTimer, dispatch_time(DISPATCH_TIME_NOW, 0),
+-                              1.0 / 60.0 * NSEC_PER_SEC, 0);
++                              NSEC_PER_SEC / 120, NSEC_PER_MSEC);
+     __weak MeleePadGameViewController *weakSelf = self;
+     dispatch_source_set_event_handler(_controllerTimer, ^{
+         [weakSelf publishMergedInput];
+@@ -1894,6 +1934,22 @@ - (void)startInputConsumer {
+     dispatch_resume(_controllerTimer);
+ }
+ 
++// Any thread. Publishes player one's input on the main queue now instead of at
++// the next tick; calls while one is queued fold into it.
++- (void)publishInputSoon {
++    if (_inputPublishPending.exchange(true))
++        return;
++    __weak MeleePadGameViewController *weakSelf = self;
++    dispatch_async(dispatch_get_main_queue(), ^{
++        MeleePadGameViewController *strongSelf = weakSelf;
++        if (strongSelf == nil)
++            return;
++        strongSelf->_inputPublishPending.store(false);
++        if (strongSelf->_controllerTimer != nil)
++            [strongSelf publishMergedInput];
++    });
++}
++
+ - (void)publishMergedInput {
+     MeleePadInputState merged = [[MeleePadInputMixer sharedMixer] consumeMergedState];
+     MeleePadSettings *settings = [MeleePadSettings sharedSettings];
+diff --git a/apple/ios/MeleePadNSOGCBridge.h b/apple/ios/MeleePadNSOGCBridge.h
+new file mode 100644
+index 0000000..7547fa6
+--- /dev/null
++++ b/apple/ios/MeleePadNSOGCBridge.h
+@@ -0,0 +1,65 @@
++#pragma once
++
++#import <Foundation/Foundation.h>
++
++#include "MeleePadInputState.h"
++
++NS_ASSUME_NONNULL_BEGIN
++
++typedef NS_ENUM(NSInteger, MeleePadNSOGCStatus) {
++    MeleePadNSOGCStatusOff,          // turned off from the Controls menu
++    MeleePadNSOGCStatusUnavailable,  // Bluetooth is off or not allowed for MeleePad
++    MeleePadNSOGCStatusSearching,    // none connected yet: waiting for one in SYNC mode
++    MeleePadNSOGCStatusConnected,    // one or more connected (and looking for more)
++};
++
++/* Connects up to four Nintendo Switch Online GameCube controllers made for the
++ * Switch 2, which iOS has no driver for, over Bluetooth LE through NSOGCKit
++ * (NSOGC/). The first is player one, like a GameController pad; the others
++ * are players 2 to 4, each plugged into its own GameCube port while it is
++ * connected. Main thread only, except where noted. */
++@interface MeleePadNSOGCBridge : NSObject
++
+++ (instancetype)sharedBridge;
++
++/* Starts Bluetooth unless the controllers were turned off from the Controls
++ * menu. The first start shows the Bluetooth permission prompt. */
++- (void)start;
++
++/* Turns the controllers on: reconnects remembered ones and looks for one in
++ * SYNC mode. The choice is kept across launches. */
++- (void)connect;
++
++/* Disconnects every controller and stays off until connect. */
++- (void)disconnect;
++
++/* Forgets remembered controllers and disconnects them; controllers in SYNC
++ * mode can then pair. */
++- (void)forgetControllers;
++
++@property(nonatomic, readonly) MeleePadNSOGCStatus status;
++@property(nonatomic, readonly) BOOL playerOneConnected;
++@property(nonatomic, readonly) NSUInteger connectedCount;
++@property(nonatomic, readonly) BOOL hasRememberedControllers;
++
++/* "Player 1: name", one per connected controller, in player order. */
++@property(nonatomic, readonly) NSArray<NSString *> *connectedDescriptions;
++
++/* Called when a controller connects or disconnects, or the controllers are
++ * turned on or off. */
++@property(nonatomic, copy, nullable) void (^connectionChangedHandler)(void);
++
++/* Bluetooth queue: player one's report just reached the input mixer, so the
++ * game can be fed without waiting for the next tick. Set it before start. */
++@property(nonatomic, copy, nullable) void (^playerOneInputHandler)(void);
++
++/* Bluetooth queue: input for players 2-4 (GameCube ports 1-3). Set it before
++ * start. */
++@property(nonatomic, copy, nullable) void (^portInputHandler)(NSInteger port, MeleePadInputState state);
++
++/* Players 2-4's controllers connecting and disconnecting (ports 1-3). */
++@property(nonatomic, copy, nullable) void (^portConnectionHandler)(NSInteger port, BOOL connected);
++
++@end
++
++NS_ASSUME_NONNULL_END
+diff --git a/apple/ios/MeleePadNSOGCBridge.mm b/apple/ios/MeleePadNSOGCBridge.mm
+new file mode 100644
+index 0000000..88c84ad
+--- /dev/null
++++ b/apple/ios/MeleePadNSOGCBridge.mm
+@@ -0,0 +1,218 @@
++#import "MeleePadNSOGCBridge.h"
++
++#import "NSOGC/NSOGCKit.h"
++#import "MeleePadDiagnostics.h"
++#import "MeleePadInputMixer.h"
++
++#include <cmath>
++
++static NSString *const kEnabledKey = @"MeleePadNSOGCEnabled";
++
++// The controller is a GameCube pad, so its buttons map one to one; the
++// player's face-button mapping is for other layouts. L and R are the
++// triggers' own end-of-travel clicks, as on the original controller.
++static MeleePadInputState MeleePadInputStateFromNSOGC(const nsogc_state &pad) {
++    static const struct {
++        uint32_t pad;
++        uint16_t meleepad;
++    } kButtons[] = {
++        {NSOGC_BUTTON_A, MeleePadButtonA},
++        {NSOGC_BUTTON_B, MeleePadButtonB},
++        {NSOGC_BUTTON_X, MeleePadButtonX},
++        {NSOGC_BUTTON_Y, MeleePadButtonY},
++        {NSOGC_BUTTON_Z, MeleePadButtonZ},
++        {NSOGC_BUTTON_START, MeleePadButtonStart},
++        {NSOGC_BUTTON_L, MeleePadButtonL},
++        {NSOGC_BUTTON_R, MeleePadButtonR},
++        {NSOGC_BUTTON_DPAD_UP, MeleePadButtonDpadUp},
++        {NSOGC_BUTTON_DPAD_DOWN, MeleePadButtonDpadDown},
++        {NSOGC_BUTTON_DPAD_LEFT, MeleePadButtonDpadLeft},
++        {NSOGC_BUTTON_DPAD_RIGHT, MeleePadButtonDpadRight},
++    };
++    MeleePadInputState state = {};
++    state.connected = 1;
++    for (const auto &button : kButtons) {
++        if (pad.buttons & button.pad)
++            state.buttons |= button.meleepad;
++    }
++    state.stickX = (int8_t)std::lround(pad.stick_x * 127.0f);
++    state.stickY = (int8_t)std::lround(pad.stick_y * 127.0f);
++    state.cStickX = (int8_t)std::lround(pad.cstick_x * 127.0f);
++    state.cStickY = (int8_t)std::lround(pad.cstick_y * 127.0f);
++    state.triggerL = (uint8_t)std::lround(pad.trigger_l * 255.0f);
++    state.triggerR = (uint8_t)std::lround(pad.trigger_r * 255.0f);
++    return state;
++}
++
++@interface MeleePadNSOGCBridge () <NSOGCManagerDelegate>
++@end
++
++@implementation MeleePadNSOGCBridge {
++    NSMutableDictionary<NSNumber *, NSOGCController *> *_controllers;  // by player index
++    BOOL _configured;
++    BOOL _bluetoothAvailable;
++}
++
+++ (instancetype)sharedBridge {
++    static MeleePadNSOGCBridge *bridge;
++    static dispatch_once_t once;
++    dispatch_once(&once, ^{
++        bridge = [[MeleePadNSOGCBridge alloc] init];
++    });
++    return bridge;
++}
++
++- (instancetype)init {
++    if ((self = [super init])) {
++        [NSUserDefaults.standardUserDefaults registerDefaults:@{kEnabledKey : @YES}];
++        _controllers = [NSMutableDictionary dictionary];
++        _bluetoothAvailable = YES;
++    }
++    return self;
++}
++
++- (BOOL)enabled {
++    return [NSUserDefaults.standardUserDefaults boolForKey:kEnabledKey];
++}
++
++- (void)setEnabled:(BOOL)enabled {
++    [NSUserDefaults.standardUserDefaults setBool:enabled forKey:kEnabledKey];
++}
++
++- (void)start {
++    if (self.enabled)
++        [self startManager];
++}
++
++- (void)startManager {
++    NSOGCManager *manager = NSOGCManager.sharedManager;
++    if (!_configured) {
++        _configured = YES;
++        manager.maximumControllers = 4;  // the GameCube's four ports
++        // Input goes straight from the Bluetooth queue into the locked mixer
++        // and players 2-4's pipes.
++        manager.deliversInputOnBluetoothQueue = YES;
++        manager.delegate = self;
++        manager.logHandler = ^(NSString *line) {
++            MeleePadLog(@"nsogc %@", line);
++        };
++    }
++    [manager start];
++}
++
++- (void)connect {
++    self.enabled = YES;
++    [self startManager];
++    MeleePadLog(@"nsogc turned on");
++    [self notifyConnectionChanged];
++}
++
++- (void)disconnect {
++    self.enabled = NO;
++    [NSOGCManager.sharedManager stop];
++    MeleePadLog(@"nsogc turned off");
++    [self notifyConnectionChanged];
++}
++
++- (void)forgetControllers {
++    NSOGCManager *manager = NSOGCManager.sharedManager;
++    [manager forgetControllers];
++    // Forgotten first, so the disconnections do not wait for them to come back.
++    for (NSOGCController *controller in _controllers.allValues)
++        [manager disconnectController:controller];
++    MeleePadLog(@"nsogc controllers forgotten");
++    [self notifyConnectionChanged];
++}
++
++- (MeleePadNSOGCStatus)status {
++    if (!self.enabled)
++        return MeleePadNSOGCStatusOff;
++    if (_controllers.count > 0)
++        return MeleePadNSOGCStatusConnected;
++    if (!_bluetoothAvailable)
++        return MeleePadNSOGCStatusUnavailable;
++    return MeleePadNSOGCStatusSearching;
++}
++
++- (BOOL)playerOneConnected {
++    return _controllers[@0] != nil;
++}
++
++- (NSUInteger)connectedCount {
++    return _controllers.count;
++}
++
++- (BOOL)hasRememberedControllers {
++    return NSOGCManager.sharedManager.hasRememberedControllers;
++}
++
++- (NSArray<NSString *> *)connectedDescriptions {
++    NSMutableArray<NSString *> *descriptions = [NSMutableArray array];
++    for (NSInteger player = 0; player < 4; player++) {
++        NSOGCController *controller = _controllers[@(player)];
++        if (controller != nil)
++            [descriptions addObject:[NSString stringWithFormat:@"Player %ld: %@", (long)player + 1,
++                                                               controller.name]];
++    }
++    return descriptions;
++}
++
++- (void)notifyConnectionChanged {
++    if (self.connectionChangedHandler != nil)
++        self.connectionChangedHandler();
++}
++
++#pragma mark - NSOGCManagerDelegate (main thread)
++
++- (void)manager:(NSOGCManager *)manager didConnectController:(NSOGCController *)controller {
++    NSInteger player = controller.playerIndex;
++    if (player < 0 || player > 3 || _controllers[@(player)] != nil)
++        return;
++    _controllers[@(player)] = controller;
++    if (player == 0) {
++        void (^inputUpdated)(void) = self.playerOneInputHandler;
++        // Runs on the Bluetooth queue for every report.
++        controller.inputHandler = ^(NSOGCController *source, nsogc_state state) {
++            (void)source;
++            [[MeleePadInputMixer sharedMixer] setInputState:MeleePadInputStateFromNSOGC(state)
++                                                  fromTouch:NO];
++            if (inputUpdated != nil)
++                inputUpdated();
++        };
++    } else {
++        void (^portInput)(NSInteger, MeleePadInputState) = self.portInputHandler;
++        controller.inputHandler = ^(NSOGCController *source, nsogc_state state) {
++            (void)source;
++            if (portInput != nil)
++                portInput(player, MeleePadInputStateFromNSOGC(state));
++        };
++        if (self.portConnectionHandler != nil)
++            self.portConnectionHandler(player, YES);
++    }
++    MeleePadLog(@"nsogc controller connected player=%ld name=%@", (long)player + 1, controller.name);
++    [self notifyConnectionChanged];
++}
++
++- (void)manager:(NSOGCManager *)manager didDisconnectController:(NSOGCController *)controller {
++    NSInteger player = controller.playerIndex;
++    if (_controllers[@(player)] != controller)
++        return;
++    controller.inputHandler = nil;
++    [_controllers removeObjectForKey:@(player)];
++    // NSOGCKit already delivered a neutral state on the Bluetooth queue, which
++    // stays the only writer of players 2-4's pipes.
++    if (player == 0) {
++        [[MeleePadInputMixer sharedMixer] clearInputFromTouch:NO];
++    } else if (self.portConnectionHandler != nil) {
++        self.portConnectionHandler(player, NO);
++    }
++    MeleePadLog(@"nsogc controller disconnected player=%ld", (long)player + 1);
++    [self notifyConnectionChanged];
++}
++
++- (void)manager:(NSOGCManager *)manager bluetoothAvailabilityDidChange:(BOOL)available {
++    _bluetoothAvailable = available;
++    [self notifyConnectionChanged];
++}
++
++@end
+diff --git a/apple/ios/NSOGC/NSOGCController.h b/apple/ios/NSOGC/NSOGCController.h
+new file mode 100644
+index 0000000..c0b67f2
+--- /dev/null
++++ b/apple/ios/NSOGC/NSOGCController.h
+@@ -0,0 +1,55 @@
++#import <Foundation/Foundation.h>
++
++#include "nsogc_protocol.h"
++
++NS_ASSUME_NONNULL_BEGIN
++
++typedef NS_ENUM(NSInteger, NSOGCControllerStatus) {
++  NSOGCControllerStatusConnecting,
++  NSOGCControllerStatusInitializing,
++  NSOGCControllerStatusReady,
++  NSOGCControllerStatusDisconnected,
++};
++
++@class NSOGCController;
++
++typedef void (^NSOGCInputHandler)(NSOGCController *controller, nsogc_state state);
++
++// One NSO GameCube controller. NSOGCManager creates them; an app only reads
++// their state or sets an input handler.
++@interface NSOGCController : NSObject
++
++// Stable per device on this phone (CoreBluetooth's peripheral identifier).
++@property(nonatomic, readonly) NSUUID *identifier;
++@property(nonatomic, readonly, copy) NSString *name;
++@property(nonatomic, readonly) NSOGCControllerStatus status;
++
++// 0-based player, shown on the controller's LEDs.
++@property(nonatomic, readonly) NSInteger playerIndex;
++
++// Connected with a USB cable (macOS) rather than over Bluetooth.
++@property(nonatomic, readonly, getter=isWired) BOOL wired;
++
++// Latest input, normalized and as received. Safe to read from any thread.
++@property(nonatomic, readonly) nsogc_state state;
++@property(nonatomic, readonly) nsogc_raw_input rawInput;
++
++// Starts as nsogc_calibration_default with the stick centres taken from the
++// first reports at rest.
++@property(nonatomic) nsogc_calibration calibration;
++
++// Called on the manager's callbackQueue with every new report. Reports that
++// arrive while an earlier one is still queued replace it, so a busy main
++// thread only ever gets the latest state. With the manager's
++// deliversInputOnBluetoothQueue, called on the Bluetooth queue for every
++// report instead.
++@property(nonatomic, copy, nullable) NSOGCInputHandler inputHandler;
++
++- (void)setRumble:(BOOL)on;
++
++- (instancetype)init NS_UNAVAILABLE;
+++ (instancetype)new NS_UNAVAILABLE;
++
++@end
++
++NS_ASSUME_NONNULL_END
+diff --git a/apple/ios/NSOGC/NSOGCController.m b/apple/ios/NSOGC/NSOGCController.m
+new file mode 100644
+index 0000000..96fd45c
+--- /dev/null
++++ b/apple/ios/NSOGC/NSOGCController.m
+@@ -0,0 +1,872 @@
++#import "NSOGCInternal.h"
++
++#import <math.h>
++#import <os/lock.h>
++
++#if TARGET_OS_OSX
++#import <IOUSBHost/IOUSBHost.h>
++#endif
++
++// Writing 01 00 to the control service's write characteristic turns the
++// controller's protocol on. The Nintendo service carries the command channel.
++static NSString *const kControlServiceUUID = @"00C5AF5D-1964-4E30-8F51-1956F96BD280";
++static NSString *const kNintendoServiceUUID = @"AB7DE9BE-89FE-49AD-828F-118F09DF7FD0";
++
++// The Nintendo service has two input report characteristics. This one
++// carries the GameCube layout nsogc_parse_report decodes; the other starts in
++// another layout and stops once the default report command is sent.
++static NSString *const kNativeInputUUID = @"8261CBA1-9435-420C-84D6-F0C75A2C8E4D";
++
++// iOS may answer the first writes with an authentication error while it
++// pairs with the controller (and shows the pairing alert), so writes and
++// subscriptions are retried for a while before setup gives up.
++static const NSInteger kMaxAttempts = 10;
++static const int64_t kRetryDelay = 2 * NSEC_PER_SEC;
++static const int64_t kSetupTimeout = 45 * NSEC_PER_SEC;
++static const int64_t kKeepAliveInterval = 1 * NSEC_PER_SEC;
++static const NSUInteger kMaxQueuedCommands = 16;
++
++// Stick centres come from the first reports, if the sticks are at rest then.
++static const NSUInteger kCenterSamples = 8;
++static const float kCenterTolerance = 200.0f;
++static const CFTimeInterval kSummaryInterval = 10.0;
++
++typedef NS_ENUM(NSInteger, NSOGCSetupStep) {
++  NSOGCSetupStepIdle,
++  NSOGCSetupStepDiscovering,
++  NSOGCSetupStepEnabling,
++  NSOGCSetupStepSubscribing,
++  NSOGCSetupStepConfiguring,
++  NSOGCSetupStepReady,
++};
++
++static NSString *NSOGCHex(NSData *data, NSUInteger limit) {
++  const uint8_t *bytes = data.bytes;
++  NSUInteger count = MIN(data.length, limit);
++  NSMutableString *text = [NSMutableString stringWithCapacity:count * 3 + 2];
++  for (NSUInteger i = 0; i < count; i++)
++    [text appendFormat:i == 0 ? @"%02X" : @" %02X", bytes[i]];
++  if (data.length > limit)
++    [text appendString:@" …"];
++  return text;
++}
++
++static NSString *NSOGCPropertyNames(CBCharacteristicProperties properties) {
++  NSMutableArray<NSString *> *names = [NSMutableArray array];
++  if (properties & CBCharacteristicPropertyRead) [names addObject:@"read"];
++  if (properties & CBCharacteristicPropertyWrite) [names addObject:@"write"];
++  if (properties & CBCharacteristicPropertyWriteWithoutResponse) [names addObject:@"write-no-response"];
++  if (properties & CBCharacteristicPropertyNotify) [names addObject:@"notify"];
++  if (properties & CBCharacteristicPropertyIndicate) [names addObject:@"indicate"];
++  return names.count ? [names componentsJoinedByString:@","] : @"none";
++}
++
++static NSString *NSOGCFormatName(nsogc_report_format format) {
++  switch (format) {
++    case NSOGC_REPORT_NATIVE: return @"native";
++    case NSOGC_REPORT_PRO_FULL: return @"pro 0x30";
++    case NSOGC_REPORT_PRO_SHORT: return @"pro short";
++    default: return @"invalid";
++  }
++}
++
++@implementation NSOGCController {
++  __weak NSOGCManager *_manager;
++  dispatch_queue_t _queue;
++  dispatch_queue_t _callbackQueue;
++
++  // Guards what other threads read.
++  os_unfair_lock _lock;
++  NSOGCControllerStatus _status;
++  NSInteger _playerIndex;
++  nsogc_state _state;
++  nsogc_raw_input _raw;
++  nsogc_calibration _calibration;
++  NSOGCInputHandler _inputHandler;
++  BOOL _deliveryPending;
++  NSUInteger _centerCount;
++  double _centerSum[4];
++
++  // Bluetooth queue only.
++  NSOGCSetupStep _step;
++  NSUInteger _pendingDiscoveries;
++  CBCharacteristic *_controlCharacteristic;
++  CBCharacteristic *_commandCharacteristic;
++  CBCharacteristic *_inputCharacteristic;
++  CBCharacteristic *_nativeInputCharacteristic;
++  NSMutableArray<CBCharacteristic *> *_subscriptions;
++  NSInteger _attempts;
++  NSInteger _enableVariant;
++  NSMutableArray<NSData *> *_commandQueue;
++  NSUInteger _reportCount;
++  NSUInteger _responseCount;
++  NSUInteger _foreignReportCount;
++  BOOL _productChecked;
++  CFAbsoluteTime _lastSummary;
++  dispatch_source_t _setupTimer;
++  dispatch_source_t _keepAliveTimer;
++
++  // Wired controllers (macOS USB) only.
++  BOOL _wired;
++  NSUUID *_wiredIdentifier;
++  NSString *_wiredName;
++#if TARGET_OS_OSX
++  IOHIDDeviceRef _hidDevice;
++  uint32_t _usbLocation;
++  IOUSBHostInterface *_usbInterface;
++  IOUSBHostPipe *_usbCommandPipe;
++#endif
++}
++
++- (instancetype)init {
++  [self doesNotRecognizeSelector:_cmd];
++  return nil;
++}
++
++- (instancetype)initWithPeripheral:(CBPeripheral *)peripheral
++                           manager:(NSOGCManager *)manager
++                             queue:(dispatch_queue_t)queue
++                     callbackQueue:(dispatch_queue_t)callbackQueue {
++  self = [super init];
++  if (self) {
++    _peripheral = peripheral;
++    _manager = manager;
++    _queue = queue;
++    _callbackQueue = callbackQueue;
++    _lock = OS_UNFAIR_LOCK_INIT;
++    _status = NSOGCControllerStatusConnecting;
++    _playerIndex = 0;
++    nsogc_calibration_default(&_calibration);
++    _subscriptions = [NSMutableArray array];
++    _commandQueue = [NSMutableArray array];
++    peripheral.delegate = self;
++  }
++  return self;
++}
++
++#if TARGET_OS_OSX
++- (instancetype)initWithHIDDevice:(IOHIDDeviceRef)device
++                          manager:(NSOGCManager *)manager
++                            queue:(dispatch_queue_t)queue
++                    callbackQueue:(dispatch_queue_t)callbackQueue {
++  self = [super init];
++  if (self) {
++    _manager = manager;
++    _queue = queue;
++    _callbackQueue = callbackQueue;
++    _lock = OS_UNFAIR_LOCK_INIT;
++    _status = NSOGCControllerStatusConnecting;
++    _playerIndex = 0;
++    nsogc_calibration_default(&_calibration);
++    _subscriptions = [NSMutableArray array];
++    _commandQueue = [NSMutableArray array];
++    _wired = YES;
++    _hidDevice = (IOHIDDeviceRef)CFRetain(device);
++    NSString *product = (__bridge NSString *)IOHIDDeviceGetProperty(device, CFSTR(kIOHIDProductKey));
++    _wiredName = product.length ? product : @"NSO GameCube Controller";
++    NSNumber *location = (__bridge NSNumber *)IOHIDDeviceGetProperty(device, CFSTR(kIOHIDLocationIDKey));
++    _usbLocation = location.unsignedIntValue;
++    // Stable for a given USB port.
++    uuid_t bytes = {'n', 's', 'o', 'g', 'c', '-', 'u', 's', 'b', 0, 0, 0, 0, 0, 0, 0};
++    uint32_t port = _usbLocation;
++    memcpy(bytes + 12, &port, sizeof port);
++    _wiredIdentifier = [[NSUUID alloc] initWithUUIDBytes:bytes];
++  }
++  return self;
++}
++
++- (void)dealloc {
++  if (_hidDevice != NULL)
++    CFRelease(_hidDevice);
++}
++
++- (IOHIDDeviceRef)hidDevice {
++  return _hidDevice;
++}
++#endif
++
++#pragma mark - Public state
++
++- (NSUUID *)identifier {
++  return _wired ? _wiredIdentifier : _peripheral.identifier;
++}
++
++- (NSString *)name {
++  if (_wired)
++    return _wiredName;
++  return _peripheral.name.length ? _peripheral.name : @"NSO GameCube Controller";
++}
++
++- (BOOL)isWired {
++  return _wired;
++}
++
++- (NSOGCControllerStatus)status {
++  os_unfair_lock_lock(&_lock);
++  NSOGCControllerStatus status = _status;
++  os_unfair_lock_unlock(&_lock);
++  return status;
++}
++
++- (void)setStatus:(NSOGCControllerStatus)status {
++  os_unfair_lock_lock(&_lock);
++  _status = status;
++  os_unfair_lock_unlock(&_lock);
++}
++
++- (NSInteger)playerIndex {
++  os_unfair_lock_lock(&_lock);
++  NSInteger playerIndex = _playerIndex;
++  os_unfair_lock_unlock(&_lock);
++  return playerIndex;
++}
++
++- (nsogc_state)state {
++  os_unfair_lock_lock(&_lock);
++  nsogc_state state = _state;
++  os_unfair_lock_unlock(&_lock);
++  return state;
++}
++
++- (nsogc_raw_input)rawInput {
++  os_unfair_lock_lock(&_lock);
++  nsogc_raw_input raw = _raw;
++  os_unfair_lock_unlock(&_lock);
++  return raw;
++}
++
++- (nsogc_calibration)calibration {
++  os_unfair_lock_lock(&_lock);
++  nsogc_calibration calibration = _calibration;
++  os_unfair_lock_unlock(&_lock);
++  return calibration;
++}
++
++- (void)setCalibration:(nsogc_calibration)calibration {
++  os_unfair_lock_lock(&_lock);
++  _calibration = calibration;
++  _centerCount = kCenterSamples;  // an explicit calibration replaces the automatic centre
++  os_unfair_lock_unlock(&_lock);
++}
++
++- (NSOGCInputHandler)inputHandler {
++  os_unfair_lock_lock(&_lock);
++  NSOGCInputHandler handler = _inputHandler;
++  os_unfair_lock_unlock(&_lock);
++  return handler;
++}
++
++- (void)setInputHandler:(NSOGCInputHandler)inputHandler {
++  NSOGCInputHandler copy = [inputHandler copy];
++  os_unfair_lock_lock(&_lock);
++  _inputHandler = copy;
++  os_unfair_lock_unlock(&_lock);
++}
++
++- (void)setRumble:(BOOL)on {
++  dispatch_async(_queue, ^{
++    if (self->_step != NSOGCSetupStepReady)
++      return;
++    uint8_t frame[12];
++    size_t length = nsogc_command_vibration(frame, on);
++    [self enqueueCommand:[NSData dataWithBytes:frame length:length]];
++  });
++}
++
++- (NSString *)logName {
++  return [NSString stringWithFormat:@"%@ [%@]", self.name,
++                                    [self.identifier.UUIDString substringToIndex:8]];
++}
++
++#pragma mark - Connection lifecycle (Bluetooth queue)
++
++- (void)didConnect {
++  [self setStatus:NSOGCControllerStatusInitializing];
++  _step = NSOGCSetupStepDiscovering;
++  [self startSetupTimer];
++  [_manager log:@"%@: connected, discovering services", self.logName];
++  [_peripheral discoverServices:nil];
++}
++
++- (void)didDisconnect {
++  _step = NSOGCSetupStepIdle;
++  [self cancelTimers];
++  [_commandQueue removeAllObjects];
++  _inputCharacteristic = nil;
++#if TARGET_OS_OSX
++  if (_wired) {
++    [_usbInterface destroy];
++    _usbInterface = nil;
++    _usbCommandPipe = nil;
++  }
++#endif
++  os_unfair_lock_lock(&_lock);
++  _status = NSOGCControllerStatusDisconnected;
++  memset(&_state, 0, sizeof _state);
++  memset(&_raw, 0, sizeof _raw);
++  nsogc_state state = _state;
++  NSOGCInputHandler handler = _inputHandler;
++  BOOL immediate = _manager.deliversInputOnBluetoothQueue;
++  BOOL schedule = !immediate && !_deliveryPending && handler != nil;
++  if (schedule)
++    _deliveryPending = YES;
++  os_unfair_lock_unlock(&_lock);
++  // A neutral state releases every button the game still holds.
++  if (immediate && handler != nil)
++    handler(self, state);
++  else if (schedule)
++    dispatch_async(_callbackQueue, ^{ [self deliverLatestState]; });
++}
++
++- (void)assignPlayerIndex:(NSInteger)playerIndex {
++  os_unfair_lock_lock(&_lock);
++  _playerIndex = playerIndex;
++  os_unfair_lock_unlock(&_lock);
++  [self sendPlayerLeds];
++}
++
++- (void)fail:(NSString *)reason {
++  if (_step == NSOGCSetupStepIdle)
++    return;
++  _step = NSOGCSetupStepIdle;
++  [self cancelTimers];
++  [_manager controllerDidFail:self reason:reason];
++}
++
++- (void)startSetupTimer {
++  [self cancelTimers];
++  _setupTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, _queue);
++  dispatch_source_set_timer(_setupTimer, dispatch_time(DISPATCH_TIME_NOW, kSetupTimeout),
++                            DISPATCH_TIME_FOREVER, NSEC_PER_SEC);
++  __weak NSOGCController *weakSelf = self;
++  dispatch_source_set_event_handler(_setupTimer, ^{
++    NSOGCController *strongSelf = weakSelf;
++    if (strongSelf == nil || strongSelf->_step == NSOGCSetupStepReady)
++      return;
++    [strongSelf fail:[NSString stringWithFormat:@"setup timed out at step %ld",
++                                                (long)strongSelf->_step]];
++  });
++  dispatch_resume(_setupTimer);
++}
++
++// Bluetooth only: the controller drops a link that sees no host traffic.
++- (void)startKeepAlive {
++  if (_wired || _keepAliveTimer != nil || _commandCharacteristic == nil)
++    return;
++  _keepAliveTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, _queue);
++  dispatch_source_set_timer(_keepAliveTimer, dispatch_time(DISPATCH_TIME_NOW, kKeepAliveInterval),
++                            kKeepAliveInterval, kKeepAliveInterval / 10);
++  __weak NSOGCController *weakSelf = self;
++  dispatch_source_set_event_handler(_keepAliveTimer, ^{
++    [weakSelf sendPlayerLeds];
++  });
++  dispatch_resume(_keepAliveTimer);
++}
++
++- (void)cancelTimers {
++  if (_setupTimer != nil) {
++    dispatch_source_cancel(_setupTimer);
++    _setupTimer = nil;
++  }
++  if (_keepAliveTimer != nil) {
++    dispatch_source_cancel(_keepAliveTimer);
++    _keepAliveTimer = nil;
++  }
++}
++
++- (void)retryAfterDelay:(dispatch_block_t)block {
++  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kRetryDelay), _queue, block);
++}
++
++#pragma mark - Setup steps
++
++- (void)peripheral:(CBPeripheral *)peripheral didDiscoverServices:(NSError *)error {
++  if (_step != NSOGCSetupStepDiscovering)
++    return;
++  if (error != nil || peripheral.services.count == 0) {
++    [self fail:[NSString stringWithFormat:@"service discovery failed: %@",
++                                          error.localizedDescription ?: @"no services"]];
++    return;
++  }
++  _pendingDiscoveries = peripheral.services.count;
++  for (CBService *service in peripheral.services)
++    [peripheral discoverCharacteristics:nil forService:service];
++}
++
++- (void)peripheral:(CBPeripheral *)peripheral
++    didDiscoverCharacteristicsForService:(CBService *)service
++                                   error:(NSError *)error {
++  if (_step != NSOGCSetupStepDiscovering)
++    return;
++  if (error != nil)
++    [_manager log:@"%@: characteristics of %@ failed: %@", self.logName,
++                  service.UUID.UUIDString, error.localizedDescription];
++  if (_pendingDiscoveries > 0)
++    _pendingDiscoveries--;
++  if (_pendingDiscoveries == 0)
++    [self chooseCharacteristics];
++}
++
++- (void)chooseCharacteristics {
++  CBUUID *controlService = [CBUUID UUIDWithString:kControlServiceUUID];
++  CBUUID *nintendoService = [CBUUID UUIDWithString:kNintendoServiceUUID];
++  CBUUID *nativeInput = [CBUUID UUIDWithString:kNativeInputUUID];
++  CBCharacteristic *firstWritable = nil;
++  _controlCharacteristic = nil;
++  _commandCharacteristic = nil;
++  _inputCharacteristic = nil;
++  _nativeInputCharacteristic = nil;
++  [_subscriptions removeAllObjects];
++
++  for (CBService *service in _peripheral.services) {
++    [_manager log:@"%@: service %@", self.logName, service.UUID.UUIDString];
++    NSMutableArray<CBCharacteristic *> *withoutResponse = [NSMutableArray array];
++    for (CBCharacteristic *characteristic in service.characteristics) {
++      CBCharacteristicProperties properties = characteristic.properties;
++      [_manager log:@"%@:   %@ [%@]", self.logName, characteristic.UUID.UUIDString,
++                    NSOGCPropertyNames(properties)];
++      if (properties & CBCharacteristicPropertyWrite) {
++        if (firstWritable == nil)
++          firstWritable = characteristic;
++        if (_controlCharacteristic == nil && [service.UUID isEqual:controlService])
++          _controlCharacteristic = characteristic;
++      }
++      if (properties & CBCharacteristicPropertyWriteWithoutResponse)
++        [withoutResponse addObject:characteristic];
++      if (properties & (CBCharacteristicPropertyNotify | CBCharacteristicPropertyIndicate))
++        [_subscriptions addObject:characteristic];
++      if ([characteristic.UUID isEqual:nativeInput])
++        _nativeInputCharacteristic = characteristic;
++    }
++    // The Nintendo service has three write-without-response characteristics,
++    // in handle order rumble, commands and commands with a rumble prefix.
++    // CoreBluetooth lists characteristics in handle order.
++    if (withoutResponse.count >= 3 &&
++        (_commandCharacteristic == nil || [service.UUID isEqual:nintendoService]))
++      _commandCharacteristic = withoutResponse[1];
++  }
++
++  if (_controlCharacteristic == nil)
++    _controlCharacteristic = firstWritable;
++  if (_controlCharacteristic == nil) {
++    [self fail:@"no writable characteristic, this is not the controller"];
++    return;
++  }
++  [_manager log:@"%@: control %@, commands %@, %lu to subscribe", self.logName,
++                _controlCharacteristic.UUID.UUIDString,
++                _commandCharacteristic.UUID.UUIDString ?: @"none (no LEDs or rumble)",
++                (unsigned long)_subscriptions.count];
++
++  _step = NSOGCSetupStepEnabling;
++  _attempts = 0;
++  _enableVariant = 0;
++  [self writeEnable];
++}
++
++// The control characteristic takes exactly two bytes: 01 00, which some
++// firmware wants as 01 01.
++- (void)writeEnable {
++  const uint8_t value[2] = {0x01, _enableVariant == 0 ? 0x00 : 0x01};
++  [_peripheral writeValue:[NSData dataWithBytes:value length:sizeof value]
++        forCharacteristic:_controlCharacteristic
++                     type:CBCharacteristicWriteWithResponse];
++}
++
++- (void)peripheral:(CBPeripheral *)peripheral
++    didWriteValueForCharacteristic:(CBCharacteristic *)characteristic
++                             error:(NSError *)error {
++  if (characteristic != _controlCharacteristic) {
++    if (error != nil)
++      [_manager log:@"%@: write to %@ failed: %@", self.logName,
++                    characteristic.UUID.UUIDString, error.localizedDescription];
++    return;
++  }
++
++  if (_step != NSOGCSetupStepEnabling)
++    return;
++  if (error != nil) {
++    if (_enableVariant == 0) {
++      _enableVariant = 1;
++      [_manager log:@"%@: 01 00 not accepted (%@), trying 01 01", self.logName,
++                    error.localizedDescription];
++      [self writeEnable];
++    } else if (++_attempts < kMaxAttempts) {
++      [_manager log:@"%@: enable not accepted yet (%@), retrying", self.logName,
++                    error.localizedDescription];
++      _enableVariant = 0;
++      [self retryAfterDelay:^{
++        if (self->_step == NSOGCSetupStepEnabling)
++          [self writeEnable];
++      }];
++    } else {
++      [self fail:[NSString stringWithFormat:@"enable rejected: %@", error.localizedDescription]];
++    }
++    return;
++  }
++  [_manager log:@"%@: protocol enabled (01 %02X)", self.logName, _enableVariant == 0 ? 0x00 : 0x01];
++  _step = NSOGCSetupStepSubscribing;
++  _attempts = 0;
++  [self subscribeNext];
++}
++
++- (void)subscribeNext {
++  CBCharacteristic *next = _subscriptions.firstObject;
++  if (next == nil) {
++    [self configure];
++    return;
++  }
++  [_peripheral setNotifyValue:YES forCharacteristic:next];
++}
++
++- (void)peripheral:(CBPeripheral *)peripheral
++    didUpdateNotificationStateForCharacteristic:(CBCharacteristic *)characteristic
++                                          error:(NSError *)error {
++  if (_step != NSOGCSetupStepSubscribing || characteristic != _subscriptions.firstObject)
++    return;
++  if (error != nil && ++_attempts < kMaxAttempts) {
++    [_manager log:@"%@: subscription to %@ not accepted yet (%@), retrying", self.logName,
++                  characteristic.UUID.UUIDString, error.localizedDescription];
++    [self retryAfterDelay:^{
++      if (self->_step == NSOGCSetupStepSubscribing &&
++          self->_subscriptions.firstObject == characteristic)
++        [self->_peripheral setNotifyValue:YES forCharacteristic:characteristic];
++    }];
++    return;
++  }
++  if (error != nil)
++    [_manager log:@"%@: subscription to %@ failed: %@", self.logName,
++                  characteristic.UUID.UUIDString, error.localizedDescription];
++  else
++    [_manager log:@"%@: subscribed to %@", self.logName, characteristic.UUID.UUIDString];
++  [_subscriptions removeObjectAtIndex:0];
++  _attempts = 0;
++  [self subscribeNext];
++}
++
++// The device information read, the default report setting and the player
++// LEDs go over the command channel; input reports start after them.
++- (void)configure {
++  _step = NSOGCSetupStepConfiguring;
++  if (_commandCharacteristic == nil)
++    [_manager log:@"%@: no command channel, waiting for input reports as is", self.logName];
++  uint8_t frame[16];
++  size_t length = nsogc_command_spi_read(frame, NSOGC_SPI_DEVICE_INFO, 0x40);
++  [self enqueueCommand:[NSData dataWithBytes:frame length:length]];
++  length = nsogc_command_default_report(frame);
++  [self enqueueCommand:[NSData dataWithBytes:frame length:length]];
++  [self sendPlayerLeds];
++  [_manager log:@"%@: commands sent, waiting for input reports", self.logName];
++  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), _queue, ^{
++    if (self->_step == NSOGCSetupStepConfiguring)
++      [self->_manager log:@"%@: no input report 5 s after setup", self.logName];
++  });
++}
++
++- (void)becomeReady {
++  if (_step == NSOGCSetupStepReady || _step == NSOGCSetupStepIdle)
++    return;
++  _step = NSOGCSetupStepReady;
++  if (_setupTimer != nil) {
++    dispatch_source_cancel(_setupTimer);
++    _setupTimer = nil;
++  }
++  [self setStatus:NSOGCControllerStatusReady];
++  [self startKeepAlive];
++  [_manager controllerDidBecomeReady:self];
++}
++
++#pragma mark - Commands
++
++- (void)sendPlayerLeds {
++  uint8_t frame[16];
++  size_t length = nsogc_command_player_leds(frame, nsogc_player_led_mask((int)self.playerIndex));
++  [self enqueueCommand:[NSData dataWithBytes:frame length:length]];
++}
++
++- (void)enqueueCommand:(NSData *)command {
++  if (_wired) {
++    [self sendUSBCommand:command];
++    return;
++  }
++  if (_commandCharacteristic == nil)
++    return;
++  if (_commandQueue.count >= kMaxQueuedCommands)
++    [_commandQueue removeObjectAtIndex:0];
++  [_commandQueue addObject:command];
++  [self flushCommands];
++}
++
++- (void)flushCommands {
++  if (_commandCharacteristic == nil)
++    return;
++  BOOL withResponse =
++      (_commandCharacteristic.properties & CBCharacteristicPropertyWriteWithoutResponse) == 0;
++  while (_commandQueue.count > 0) {
++    if (!withResponse && !_peripheral.canSendWriteWithoutResponse)
++      return;  // peripheralIsReadyToSendWriteWithoutResponse: resumes
++    NSData *command = _commandQueue.firstObject;
++    [_commandQueue removeObjectAtIndex:0];
++    [_peripheral writeValue:command
++          forCharacteristic:_commandCharacteristic
++                       type:withResponse ? CBCharacteristicWriteWithResponse
++                                         : CBCharacteristicWriteWithoutResponse];
++  }
++}
++
++- (void)peripheralIsReadyToSendWriteWithoutResponse:(CBPeripheral *)peripheral {
++  [self flushCommands];
++}
++
++#pragma mark - Notifications
++
++- (void)peripheral:(CBPeripheral *)peripheral
++    didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic
++                              error:(NSError *)error {
++  if (error != nil)
++    return;
++  NSData *value = characteristic.value;
++  // Input comes from one characteristic only: the native one when the
++  // controller has it, else the first readable one that sends a report.
++  BOOL reportStream = value.length >= NSOGC_MIN_INPUT_REPORT_SIZE &&
++                      (characteristic.properties & CBCharacteristicPropertyRead);
++  BOOL isInput = _nativeInputCharacteristic != nil
++                     ? characteristic == _nativeInputCharacteristic
++                     : reportStream && (_inputCharacteristic == nil ||
++                                        characteristic == _inputCharacteristic);
++  if (!isInput) {
++    if (!reportStream)
++      [self handleResponse:value from:characteristic];
++    else if (_foreignReportCount++ < 2)
++      [_manager log:@"%@: other report stream on %@: %@", self.logName,
++                    characteristic.UUID.UUIDString, NSOGCHex(value, 24)];
++    return;
++  }
++  if (_inputCharacteristic == nil) {
++    _inputCharacteristic = characteristic;
++    [_manager log:@"%@: input reports on %@ (%lu bytes)", self.logName,
++                  characteristic.UUID.UUIDString, (unsigned long)value.length];
++  }
++
++  nsogc_raw_input raw;
++  nsogc_report_format format = nsogc_parse_report(value.bytes, value.length, &raw);
++  if (format == NSOGC_REPORT_INVALID)
++    return;
++  [self didReceiveInput:raw format:format bytes:value.bytes length:value.length];
++}
++
++// Both transports, once a report is decoded.
++- (void)didReceiveInput:(nsogc_raw_input)raw
++                 format:(nsogc_report_format)format
++                  bytes:(const uint8_t *)bytes
++                 length:(NSUInteger)length {
++  if (_reportCount < 3)
++    [_manager log:@"%@: report %lu (%@): %@", self.logName, (unsigned long)_reportCount + 1,
++                  NSOGCFormatName(format), NSOGCHex([NSData dataWithBytes:bytes length:length], 24)];
++  _reportCount++;
++  [self acceptRawInput:raw];
++
++  CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
++  if (now - _lastSummary >= kSummaryInterval) {
++    _lastSummary = now;
++    [_manager log:@"%@: %lu reports; stick %u,%u c-stick %u,%u triggers %u,%u buttons 0x%06X",
++                  self.logName, (unsigned long)_reportCount, raw.stick_x, raw.stick_y,
++                  raw.cstick_x, raw.cstick_y, raw.trigger_l, raw.trigger_r, raw.buttons];
++  }
++
++  // Input already flowing means setup worked, whatever the last write said.
++  if (_step == NSOGCSetupStepConfiguring) {
++    [_manager log:@"%@: input reports arriving", self.logName];
++    [self becomeReady];
++  }
++}
++
++#pragma mark - USB (macOS)
++
++#if TARGET_OS_OSX
++// Interface 1 of the controller on this USB port.
++static BOOL NSOGCIsCommandInterface(io_service_t service, uint32_t location) {
++  NSNumber *vendor = CFBridgingRelease(
++      IORegistryEntryCreateCFProperty(service, CFSTR("idVendor"), kCFAllocatorDefault, 0));
++  NSNumber *product = CFBridgingRelease(
++      IORegistryEntryCreateCFProperty(service, CFSTR("idProduct"), kCFAllocatorDefault, 0));
++  NSNumber *number = CFBridgingRelease(
++      IORegistryEntryCreateCFProperty(service, CFSTR("bInterfaceNumber"), kCFAllocatorDefault, 0));
++  NSNumber *port = CFBridgingRelease(IORegistryEntrySearchCFProperty(
++      service, kIOServicePlane, CFSTR("locationID"), kCFAllocatorDefault,
++      kIORegistryIterateRecursively | kIORegistryIterateParents));
++  return vendor.intValue == NSOGC_VENDOR_ID && product.intValue == NSOGC_PRODUCT_ID &&
++         number.intValue == NSOGC_USB_COMMAND_INTERFACE &&
++         (location == 0 || port.unsignedIntValue == location);
++}
++
++// Reports start once the default report command reaches interface 1's bulk
++// OUT endpoint; HID only carries them in, to the manager (handleUSBReport:).
++- (void)startWired {
++  [self setStatus:NSOGCControllerStatusInitializing];
++  _step = NSOGCSetupStepConfiguring;
++  [self startSetupTimer];
++  [_manager log:@"%@: connected over USB", self.logName];
++  NSString *problem = [self openUSBCommandPipe];
++  if (problem != nil) {
++    [self fail:problem];
++    return;
++  }
++  uint8_t frame[16];
++  size_t length = nsogc_command_default_report(frame);
++  [self enqueueCommand:[NSData dataWithBytes:frame length:length]];
++  [self sendPlayerLeds];
++  [_manager log:@"%@: commands sent over USB, waiting for input reports", self.logName];
++}
++
++- (NSString *)openUSBCommandPipe {
++  io_iterator_t iterator = IO_OBJECT_NULL;
++  if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOUSBHostInterface"),
++                                   &iterator) != KERN_SUCCESS)
++    return @"cannot list USB interfaces";
++  io_service_t service = IO_OBJECT_NULL;
++  io_service_t candidate;
++  while ((candidate = IOIteratorNext(iterator))) {
++    if (service == IO_OBJECT_NULL && NSOGCIsCommandInterface(candidate, _usbLocation))
++      service = candidate;
++    else
++      IOObjectRelease(candidate);
++  }
++  IOObjectRelease(iterator);
++  if (service == IO_OBJECT_NULL)
++    return @"USB interface 1 not found";
++
++  NSError *error = nil;
++  _usbInterface = [[IOUSBHostInterface alloc] initWithIOService:service
++                                                        options:IOUSBHostObjectInitOptionsNone
++                                                          queue:_queue
++                                                          error:&error
++                                                interestHandler:nil];
++  IOObjectRelease(service);
++  if (_usbInterface == nil)
++    return [NSString stringWithFormat:@"cannot open USB interface 1: %@",
++                                      error.localizedDescription];
++  const IOUSBConfigurationDescriptor *configuration = _usbInterface.configurationDescriptor;
++  const IOUSBInterfaceDescriptor *interface = _usbInterface.interfaceDescriptor;
++  const IOUSBEndpointDescriptor *endpoint = NULL;
++  while ((endpoint = IOUSBGetNextEndpointDescriptor(configuration, interface,
++                                                    (const IOUSBDescriptorHeader *)endpoint))) {
++    if (IOUSBGetEndpointType(endpoint) == kIOUSBEndpointTypeBulk &&
++        IOUSBGetEndpointDirection(endpoint) == kIOUSBEndpointDirectionOut) {
++      _usbCommandPipe = [_usbInterface copyPipeWithAddress:endpoint->bEndpointAddress error:&error];
++      break;
++    }
++  }
++  if (_usbCommandPipe == nil)
++    return [NSString stringWithFormat:@"no bulk OUT endpoint on USB interface 1 (%@)",
++                                      error.localizedDescription ?: @"none listed"];
++  return nil;
++}
++
++- (void)handleUSBReport:(const uint8_t *)report length:(NSUInteger)length {
++  if (_step == NSOGCSetupStepIdle)
++    return;
++  nsogc_raw_input raw;
++  nsogc_report_format format = nsogc_parse_usb_report(report, length, &raw);
++  if (format != NSOGC_REPORT_INVALID)
++    [self didReceiveInput:raw format:format bytes:report length:length];
++}
++#endif
++
++- (void)sendUSBCommand:(NSData *)command {
++#if TARGET_OS_OSX
++  if (_usbCommandPipe == nil)
++    return;
++  NSMutableData *frame = [command mutableCopy];
++  nsogc_command_for_usb(frame.mutableBytes, frame.length);
++  NSError *error = nil;
++  __weak NSOGCController *weakSelf = self;
++  BOOL queued = [_usbCommandPipe
++      enqueueIORequestWithData:frame
++             completionTimeout:1.0
++                         error:&error
++             completionHandler:^(IOReturn status, NSUInteger bytesTransferred) {
++               (void)bytesTransferred;
++               NSOGCController *strongSelf = weakSelf;
++               if (status != kIOReturnSuccess && strongSelf != nil)
++                 [strongSelf->_manager log:@"%@: USB command failed (0x%08X)", strongSelf.logName,
++                                           status];
++             }];
++  if (!queued)
++    [_manager log:@"%@: USB command not sent: %@", self.logName, error.localizedDescription];
++#else
++  (void)command;
++#endif
++}
++
++- (void)handleResponse:(NSData *)value from:(CBCharacteristic *)characteristic {
++  if (_responseCount++ < 8)
++    [_manager log:@"%@: response on %@: %@", self.logName, characteristic.UUID.UUIDString,
++                  NSOGCHex(value, 32)];
++  uint16_t product = 0;
++  if (!_productChecked && nsogc_find_vendor_product(value.bytes, value.length, &product)) {
++    _productChecked = YES;
++    if (product == NSOGC_PRODUCT_ID)
++      [_manager log:@"%@: device information confirms the GameCube controller", self.logName];
++    else
++      [_manager log:@"%@: device information reports product 0x%04X, not the GameCube "
++                    @"controller; buttons may be mapped differently",
++                    self.logName, product];
++  }
++}
++
++- (void)acceptRawInput:(nsogc_raw_input)raw {
++  BOOL centered = NO;
++  os_unfair_lock_lock(&_lock);
++  if (_centerCount < kCenterSamples) {
++    BOOL atRest = fabsf(raw.stick_x - 2048.0f) < kCenterTolerance &&
++                  fabsf(raw.stick_y - 2048.0f) < kCenterTolerance &&
++                  fabsf(raw.cstick_x - 2048.0f) < kCenterTolerance &&
++                  fabsf(raw.cstick_y - 2048.0f) < kCenterTolerance;
++    if (atRest) {
++      _centerSum[0] += raw.stick_x;
++      _centerSum[1] += raw.stick_y;
++      _centerSum[2] += raw.cstick_x;
++      _centerSum[3] += raw.cstick_y;
++      if (++_centerCount == kCenterSamples) {
++        _calibration.stick_center_x = (float)(_centerSum[0] / kCenterSamples);
++        _calibration.stick_center_y = (float)(_centerSum[1] / kCenterSamples);
++        _calibration.cstick_center_x = (float)(_centerSum[2] / kCenterSamples);
++        _calibration.cstick_center_y = (float)(_centerSum[3] / kCenterSamples);
++        centered = YES;
++      }
++    } else {
++      _centerCount = kCenterSamples;  // a stick is held: keep the default centres
++    }
++  }
++  _raw = raw;
++  nsogc_normalize(&_raw, &_calibration, &_state);
++  nsogc_calibration calibration = _calibration;
++  nsogc_state state = _state;
++  NSOGCInputHandler handler = _inputHandler;
++  BOOL immediate = _manager.deliversInputOnBluetoothQueue;
++  BOOL schedule = !immediate && !_deliveryPending && handler != nil;
++  if (schedule)
++    _deliveryPending = YES;
++  os_unfair_lock_unlock(&_lock);
++
++  if (centered)
++    [_manager log:@"%@: stick centres %.0f,%.0f, c-stick %.0f,%.0f", self.logName,
++                  calibration.stick_center_x, calibration.stick_center_y,
++                  calibration.cstick_center_x, calibration.cstick_center_y];
++  if (immediate && handler != nil)
++    handler(self, state);
++  else if (schedule)
++    dispatch_async(_callbackQueue, ^{ [self deliverLatestState]; });
++}
++
++- (void)deliverLatestState {
++  os_unfair_lock_lock(&_lock);
++  nsogc_state state = _state;
++  NSOGCInputHandler handler = _inputHandler;
++  _deliveryPending = NO;
++  os_unfair_lock_unlock(&_lock);
++  if (handler != nil)
++    handler(self, state);
++}
++
++@end
+diff --git a/apple/ios/NSOGC/NSOGCInternal.h b/apple/ios/NSOGC/NSOGCInternal.h
+new file mode 100644
+index 0000000..9ce139a
+--- /dev/null
++++ b/apple/ios/NSOGC/NSOGCInternal.h
+@@ -0,0 +1,45 @@
++// Interfaces shared by NSOGCManager and NSOGCController only.
++
++#import <CoreBluetooth/CoreBluetooth.h>
++
++#if TARGET_OS_OSX
++#import <IOKit/hid/IOHIDManager.h>
++#endif
++
++#import "NSOGCController.h"
++#import "NSOGCManager.h"
++
++NS_ASSUME_NONNULL_BEGIN
++
++@interface NSOGCManager ()
++// Both run on the manager's Bluetooth queue.
++- (void)controllerDidBecomeReady:(NSOGCController *)controller;
++- (void)controllerDidFail:(NSOGCController *)controller reason:(NSString *)reason;
++- (void)log:(NSString *)format, ... NS_FORMAT_FUNCTION(1, 2);
++@end
++
++@interface NSOGCController () <CBPeripheralDelegate>
++// nil for a wired controller.
++@property(nonatomic, readonly, nullable) CBPeripheral *peripheral;
++
++// Everything below runs on `queue`, the manager's queue (Bluetooth and USB).
++- (instancetype)initWithPeripheral:(CBPeripheral *)peripheral
++                           manager:(NSOGCManager *)manager
++                             queue:(dispatch_queue_t)queue
++                     callbackQueue:(dispatch_queue_t)callbackQueue NS_DESIGNATED_INITIALIZER;
++- (void)didConnect;
++- (void)didDisconnect;
++- (void)assignPlayerIndex:(NSInteger)playerIndex;
++
++#if TARGET_OS_OSX
++- (instancetype)initWithHIDDevice:(IOHIDDeviceRef)device
++                          manager:(NSOGCManager *)manager
++                            queue:(dispatch_queue_t)queue
++                    callbackQueue:(dispatch_queue_t)callbackQueue NS_DESIGNATED_INITIALIZER;
++@property(nonatomic, readonly) IOHIDDeviceRef hidDevice;
++- (void)startWired;
++- (void)handleUSBReport:(const uint8_t *)report length:(NSUInteger)length;
++#endif
++@end
++
++NS_ASSUME_NONNULL_END
+diff --git a/apple/ios/NSOGC/NSOGCKit.h b/apple/ios/NSOGC/NSOGCKit.h
+new file mode 100644
+index 0000000..0b4f5e2
+--- /dev/null
++++ b/apple/ios/NSOGC/NSOGCKit.h
+@@ -0,0 +1,6 @@
++// NSOGCKit: the Nintendo Switch Online GameCube controller (Switch 2) on iOS,
++// iPadOS and macOS over CoreBluetooth.
++
++#include "nsogc_protocol.h"
++#import "NSOGCController.h"
++#import "NSOGCManager.h"
+diff --git a/apple/ios/NSOGC/NSOGCManager.h b/apple/ios/NSOGC/NSOGCManager.h
+new file mode 100644
+index 0000000..6c4ad53
+--- /dev/null
++++ b/apple/ios/NSOGC/NSOGCManager.h
+@@ -0,0 +1,85 @@
++#import <Foundation/Foundation.h>
++
++#import "NSOGCController.h"
++
++NS_ASSUME_NONNULL_BEGIN
++
++@class NSOGCManager;
++
++@protocol NSOGCManagerDelegate <NSObject>
++@optional
++// The controller finished its setup and is sending input.
++- (void)manager:(NSOGCManager *)manager didConnectController:(NSOGCController *)controller
++    NS_SWIFT_NAME(manager(_:didConnect:));
++- (void)manager:(NSOGCManager *)manager didDisconnectController:(NSOGCController *)controller
++    NS_SWIFT_NAME(manager(_:didDisconnect:));
++- (void)manager:(NSOGCManager *)manager bluetoothAvailabilityDidChange:(BOOL)available
++    NS_SWIFT_NAME(manager(_:bluetoothAvailabilityDidChange:));
++@end
++
++// Finds, connects and sets up NSO GameCube controllers over CoreBluetooth,
++// and on macOS over USB too.
++//
++// Over Bluetooth a controller is found while it advertises: after its SYNC
++// button is pressed (about 60 seconds), or when it wakes and looks for its
++// last host. Once set up, the manager remembers it and connects again on its
++// own whenever it is in range. The app needs NSBluetoothAlwaysUsageDescription
++// in its Info.plist. Over USB (macOS) a controller is set up as soon as it is
++// plugged in; iOS gives apps no access to USB devices.
++@interface NSOGCManager : NSObject
++
++@property(class, nonatomic, readonly) NSOGCManager *sharedManager NS_SWIFT_NAME(shared);
++
++@property(nonatomic, weak, nullable) id<NSOGCManagerDelegate> delegate;
++
++// Where delegate calls, input handlers and log lines are delivered. Main by
++// default. Set it before start.
++@property(nonatomic, strong) dispatch_queue_t callbackQueue;
++
++// Receives one line per event (discovery, setup steps, errors), on the
++// callbackQueue.
++@property(nonatomic, copy, nullable) void (^logHandler)(NSString *line);
++
++// Controllers that are set up and sending input, in player order.
++@property(nonatomic, readonly) NSArray<NSOGCController *> *controllers;
++
++// How many controllers to connect before scanning stops. 4 by default.
++@property(nonatomic) NSUInteger maximumControllers;
++
++// Which transports start uses. Both YES by default; USB is macOS only. Set
++// them before start.
++@property(nonatomic) BOOL usesBluetooth;
++@property(nonatomic) BOOL usesUSB;
++
++// When YES, input handlers run on the Bluetooth queue as each report arrives,
++// with no hop to callbackQueue: the lowest latency, for handlers that are fast
++// and thread-safe (a game's input state behind a lock, say). NO by default.
++// Set it before start.
++@property(nonatomic) BOOL deliversInputOnBluetoothQueue;
++
++@property(nonatomic, readonly, getter=isRunning) BOOL running;
++
++// Looking for a controller in SYNC mode: running, and fewer controllers than
++// maximumControllers are connected.
++@property(nonatomic, readonly, getter=isScanning) BOOL scanning;
++
++// A controller was set up before and will be reconnected when it is in range.
++@property(nonatomic, readonly) BOOL hasRememberedControllers;
++
++// Turns Bluetooth on for the app (the first call shows the permission prompt),
++// reconnects remembered controllers and scans for new ones.
++- (void)start;
++
++// Stops scanning and disconnects every controller.
++- (void)stop;
++
++// Forgets remembered controllers. Connected ones stay connected.
++- (void)forgetControllers;
++
++// Disconnects one controller. A remembered one is reconnected when it comes
++// back, unless it was forgotten first.
++- (void)disconnectController:(NSOGCController *)controller NS_SWIFT_NAME(disconnect(_:));
++
++@end
++
++NS_ASSUME_NONNULL_END
+diff --git a/apple/ios/NSOGC/NSOGCManager.m b/apple/ios/NSOGC/NSOGCManager.m
+new file mode 100644
+index 0000000..a89afd0
+--- /dev/null
++++ b/apple/ios/NSOGC/NSOGCManager.m
+@@ -0,0 +1,566 @@
++#import "NSOGCInternal.h"
++
++#import <os/lock.h>
++#import <os/log.h>
++
++static NSString *const kKnownControllersKey = @"NSOGCKnownControllers";
++static NSString *const kControlServiceUUID = @"00C5AF5D-1964-4E30-8F51-1956F96BD280";
++static NSString *const kNintendoServiceUUID = @"AB7DE9BE-89FE-49AD-828F-118F09DF7FD0";
++
++// After a failed setup, the same controller is left alone this long before
++// another connection attempt.
++static const CFTimeInterval kRetryBackoff = 5.0;
++
++static NSString *NSOGCStateName(CBManagerState state) {
++  switch (state) {
++    case CBManagerStatePoweredOn: return @"on";
++    case CBManagerStatePoweredOff: return @"off";
++    case CBManagerStateUnauthorized: return @"not allowed for this app";
++    case CBManagerStateUnsupported: return @"unsupported";
++    case CBManagerStateResetting: return @"resetting";
++    default: return @"unknown";
++  }
++}
++
++static NSString *NSOGCHexData(NSData *data) {
++  if (data.length == 0)
++    return @"none";
++  const uint8_t *bytes = data.bytes;
++  NSMutableString *text = [NSMutableString stringWithCapacity:data.length * 3];
++  for (NSUInteger i = 0; i < data.length; i++)
++    [text appendFormat:i == 0 ? @"%02X" : @" %02X", bytes[i]];
++  return text;
++}
++
++@interface NSOGCManager () <CBCentralManagerDelegate>
++@end
++
++@implementation NSOGCManager {
++  dispatch_queue_t _queue;
++  os_log_t _osLog;
++
++  // Bluetooth queue only.
++  CBCentralManager *_central;
++  BOOL _wantsRunning;
++  NSMutableDictionary<NSUUID *, NSOGCController *> *_tracked;  // connecting or connected
++  NSMutableSet<NSUUID *> *_reported;                          // advertisements already logged
++  NSMutableDictionary<NSUUID *, NSNumber *> *_lastFailure;
++
++#if TARGET_OS_OSX
++  IOHIDManagerRef _hidManager;
++#endif
++
++  // Read from any thread.
++  os_unfair_lock _lock;
++  NSArray<NSOGCController *> *_readyControllers;
++  BOOL _running;
++  BOOL _scanning;
++  void (^_logHandler)(NSString *);
++}
++
+++ (NSOGCManager *)sharedManager {
++  static NSOGCManager *manager;
++  static dispatch_once_t once;
++  dispatch_once(&once, ^{
++    manager = [[NSOGCManager alloc] init];
++  });
++  return manager;
++}
++
++- (instancetype)init {
++  self = [super init];
++  if (self) {
++    // Input reports go through this queue: give it the highest priority.
++    _queue = dispatch_queue_create(
++        "nsogc.bluetooth",
++        dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
++    _osLog = os_log_create("nsogc", "bluetooth");
++    _callbackQueue = dispatch_get_main_queue();
++    _maximumControllers = 4;
++    _usesBluetooth = YES;
++    _usesUSB = YES;
++    _tracked = [NSMutableDictionary dictionary];
++    _reported = [NSMutableSet set];
++    _lastFailure = [NSMutableDictionary dictionary];
++    _lock = OS_UNFAIR_LOCK_INIT;
++    _readyControllers = @[];
++  }
++  return self;
++}
++
++#pragma mark - Public
++
++- (NSArray<NSOGCController *> *)controllers {
++  os_unfair_lock_lock(&_lock);
++  NSArray<NSOGCController *> *controllers = _readyControllers;
++  os_unfair_lock_unlock(&_lock);
++  return controllers;
++}
++
++- (BOOL)isRunning {
++  os_unfair_lock_lock(&_lock);
++  BOOL running = _running;
++  os_unfair_lock_unlock(&_lock);
++  return running;
++}
++
++- (BOOL)isScanning {
++  os_unfair_lock_lock(&_lock);
++  BOOL scanning = _scanning;
++  os_unfair_lock_unlock(&_lock);
++  return scanning;
++}
++
++- (BOOL)hasRememberedControllers {
++  return [NSUserDefaults.standardUserDefaults stringArrayForKey:kKnownControllersKey].count > 0;
++}
++
++- (void (^)(NSString *))logHandler {
++  os_unfair_lock_lock(&_lock);
++  void (^handler)(NSString *) = _logHandler;
++  os_unfair_lock_unlock(&_lock);
++  return handler;
++}
++
++- (void)setLogHandler:(void (^)(NSString *))logHandler {
++  void (^copy)(NSString *) = [logHandler copy];
++  os_unfair_lock_lock(&_lock);
++  _logHandler = copy;
++  os_unfair_lock_unlock(&_lock);
++}
++
++- (void)start {
++  dispatch_async(_queue, ^{
++    if (self->_wantsRunning)
++      return;
++    self->_wantsRunning = YES;
++    [self setRunning:YES];
++    [self log:@"starting"];
++#if TARGET_OS_OSX
++    if (self->_usesUSB)
++      [self startUSB];
++#endif
++    if (!self->_usesBluetooth)
++      return;
++    if (self->_central == nil)
++      self->_central = [[CBCentralManager alloc]
++          initWithDelegate:self
++                     queue:self->_queue
++                   options:@{CBCentralManagerOptionShowPowerAlertKey : @NO}];
++    else if (self->_central.state == CBManagerStatePoweredOn)
++      [self resume];
++  });
++}
++
++- (void)stop {
++  dispatch_async(_queue, ^{
++    if (!self->_wantsRunning)
++      return;
++    self->_wantsRunning = NO;
++    [self setRunning:NO];
++    if (self->_central.state == CBManagerStatePoweredOn)
++      [self->_central stopScan];
++    [self setScanningFlag:NO];
++    for (NSOGCController *controller in self->_tracked.allValues) {
++      if (controller.wired)
++        [self wiredControllerGone:controller];
++      else
++        [self->_central cancelPeripheralConnection:controller.peripheral];
++    }
++#if TARGET_OS_OSX
++    [self stopUSB];
++#endif
++    [self log:@"stopped"];
++  });
++}
++
++- (void)forgetControllers {
++  dispatch_async(_queue, ^{
++    [NSUserDefaults.standardUserDefaults removeObjectForKey:kKnownControllersKey];
++    [self log:@"forgot remembered controllers"];
++  });
++}
++
++- (void)disconnectController:(NSOGCController *)controller {
++  dispatch_async(_queue, ^{
++    if (self->_tracked[controller.identifier] != controller)
++      return;
++    // A wired controller is set up again when it is plugged back in.
++    if (controller.wired)
++      [self wiredControllerGone:controller];
++    else
++      [self->_central cancelPeripheralConnection:controller.peripheral];
++  });
++}
++
++#pragma mark - Internal (Bluetooth queue)
++
++- (void)setRunning:(BOOL)running {
++  os_unfair_lock_lock(&_lock);
++  _running = running;
++  os_unfair_lock_unlock(&_lock);
++}
++
++- (void)setScanningFlag:(BOOL)scanning {
++  os_unfair_lock_lock(&_lock);
++  _scanning = scanning;
++  os_unfair_lock_unlock(&_lock);
++}
++
++- (void)log:(NSString *)format, ... {
++  va_list arguments;
++  va_start(arguments, format);
++  NSString *line = [[NSString alloc] initWithFormat:format arguments:arguments];
++  va_end(arguments);
++  os_log(_osLog, "%{public}@", line);
++  void (^handler)(NSString *) = self.logHandler;
++  if (handler != nil)
++    dispatch_async(_callbackQueue, ^{ handler(line); });
++}
++
++- (NSArray<NSUUID *> *)knownIdentifiers {
++  NSMutableArray<NSUUID *> *identifiers = [NSMutableArray array];
++  for (NSString *string in [NSUserDefaults.standardUserDefaults stringArrayForKey:kKnownControllersKey]) {
++    NSUUID *identifier = [[NSUUID alloc] initWithUUIDString:string];
++    if (identifier != nil)
++      [identifiers addObject:identifier];
++  }
++  return identifiers;
++}
++
++- (void)rememberIdentifier:(NSUUID *)identifier {
++  NSMutableArray<NSString *> *known =
++      [[NSUserDefaults.standardUserDefaults stringArrayForKey:kKnownControllersKey] mutableCopy]
++          ?: [NSMutableArray array];
++  if (![known containsObject:identifier.UUIDString]) {
++    [known addObject:identifier.UUIDString];
++    [NSUserDefaults.standardUserDefaults setObject:known forKey:kKnownControllersKey];
++  }
++}
++
++- (NSUInteger)readyCount {
++  NSUInteger count = 0;
++  for (NSOGCController *controller in _tracked.allValues)
++    if (controller.status == NSOGCControllerStatusReady)
++      count++;
++  return count;
++}
++
++- (void)refreshReadyControllers {
++  NSMutableArray<NSOGCController *> *ready = [NSMutableArray array];
++  for (NSOGCController *controller in _tracked.allValues)
++    if (controller.status == NSOGCControllerStatusReady)
++      [ready addObject:controller];
++  [ready sortUsingComparator:^NSComparisonResult(NSOGCController *a, NSOGCController *b) {
++    return [@(a.playerIndex) compare:@(b.playerIndex)];
++  }];
++  os_unfair_lock_lock(&_lock);
++  _readyControllers = [ready copy];
++  os_unfair_lock_unlock(&_lock);
++}
++
++- (void)resume {
++  if (!_wantsRunning || _central.state != CBManagerStatePoweredOn)
++    return;
++  // A pending connection to a remembered controller completes whenever it is
++  // in range and connectable, with no scan needed.
++  NSArray<NSUUID *> *known = [self knownIdentifiers];
++  if (known.count > 0)
++    for (CBPeripheral *peripheral in [_central retrievePeripheralsWithIdentifiers:known])
++      [self connect:peripheral reason:@"remembered"];
++  NSArray<CBUUID *> *services = @[ [CBUUID UUIDWithString:kNintendoServiceUUID],
++                                   [CBUUID UUIDWithString:kControlServiceUUID] ];
++  for (CBPeripheral *peripheral in [_central retrieveConnectedPeripheralsWithServices:services])
++    [self connect:peripheral reason:@"already connected to the system"];
++  [self updateScanning];
++}
++
++- (void)updateScanning {
++  if (_central.state != CBManagerStatePoweredOn) {
++    [self setScanningFlag:NO];
++    return;
++  }
++  BOOL wantsScan = _wantsRunning && [self readyCount] < _maximumControllers;
++  if (wantsScan && !_central.isScanning) {
++    [_central scanForPeripheralsWithServices:nil
++                                     options:@{CBCentralManagerScanOptionAllowDuplicatesKey : @YES}];
++    [self log:@"scanning: press SYNC on the controller"];
++  } else if (!wantsScan && _central.isScanning) {
++    [_central stopScan];
++    [self log:@"scanning stopped"];
++  }
++  [self setScanningFlag:wantsScan];
++}
++
++- (void)connect:(CBPeripheral *)peripheral reason:(NSString *)reason {
++  if (_tracked[peripheral.identifier] != nil)
++    return;
++  NSOGCController *controller = [[NSOGCController alloc] initWithPeripheral:peripheral
++                                                                    manager:self
++                                                                      queue:_queue
++                                                              callbackQueue:_callbackQueue];
++  _tracked[peripheral.identifier] = controller;
++  [self log:@"connecting to %@ (%@)", controller.name, reason];
++  [_central connectPeripheral:peripheral options:nil];
++}
++
++- (void)notifyDelegate:(void (^)(id<NSOGCManagerDelegate> delegate))call selector:(SEL)selector {
++  id<NSOGCManagerDelegate> delegate = self.delegate;
++  if (delegate == nil || ![delegate respondsToSelector:selector])
++    return;
++  dispatch_async(_callbackQueue, ^{ call(delegate); });
++}
++
++- (void)controllerDidBecomeReady:(NSOGCController *)controller {
++  if (!controller.wired)
++    [self rememberIdentifier:controller.identifier];
++  [_lastFailure removeObjectForKey:controller.identifier];
++  NSMutableIndexSet *used = [NSMutableIndexSet indexSet];
++  for (NSOGCController *other in _tracked.allValues)
++    if (other != controller && other.status == NSOGCControllerStatusReady)
++      [used addIndex:(NSUInteger)other.playerIndex];
++  NSInteger player = 0;
++  while ([used containsIndex:(NSUInteger)player])
++    player++;
++  [controller assignPlayerIndex:player];
++  [self refreshReadyControllers];
++  [self log:@"%@ ready as player %ld", controller.name, (long)player + 1];
++  [self notifyDelegate:^(id<NSOGCManagerDelegate> delegate) {
++    [delegate manager:self didConnectController:controller];
++  } selector:@selector(manager:didConnectController:)];
++  [self updateScanning];
++}
++
++- (void)controllerDidFail:(NSOGCController *)controller reason:(NSString *)reason {
++  [self log:@"%@: setup failed: %@", controller.name, reason];
++  if (controller.wired) {
++    [self wiredControllerGone:controller];
++    return;
++  }
++  _lastFailure[controller.identifier] = @(CFAbsoluteTimeGetCurrent());
++  [_central cancelPeripheralConnection:controller.peripheral];
++}
++
++- (void)wiredControllerGone:(NSOGCController *)controller {
++  BOOL wasReady = controller.status == NSOGCControllerStatusReady;
++  [controller didDisconnect];
++  [_tracked removeObjectForKey:controller.identifier];
++  if (wasReady) {
++    [self refreshReadyControllers];
++    [self notifyDelegate:^(id<NSOGCManagerDelegate> delegate) {
++      [delegate manager:self didDisconnectController:controller];
++    } selector:@selector(manager:didDisconnectController:)];
++  }
++  [self updateScanning];
++}
++
++#pragma mark - USB (macOS)
++
++#if TARGET_OS_OSX
++static void NSOGCHIDMatched(void *context, IOReturn result, void *sender, IOHIDDeviceRef device) {
++  (void)result;
++  (void)sender;
++  [(__bridge NSOGCManager *)context wiredDeviceAppeared:device];
++}
++
++static void NSOGCHIDRemoved(void *context, IOReturn result, void *sender, IOHIDDeviceRef device) {
++  (void)result;
++  (void)sender;
++  [(__bridge NSOGCManager *)context wiredDeviceRemoved:device];
++}
++
++// Devices of a manager activated on a dispatch queue take no callbacks of
++// their own, so reports come here, with the device as the sender.
++static void NSOGCHIDReport(void *context, IOReturn result, void *sender, IOHIDReportType type,
++                           uint32_t reportID, uint8_t *report, CFIndex length) {
++  (void)result;
++  (void)type;
++  (void)reportID;
++  NSOGCController *controller =
++      [(__bridge NSOGCManager *)context wiredControllerForDevice:(IOHIDDeviceRef)sender];
++  [controller handleUSBReport:report length:(NSUInteger)length];
++}
++
++// HID callbacks run on the manager's queue, like CoreBluetooth's.
++- (void)startUSB {
++  if (_hidManager != NULL)
++    return;
++  _hidManager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
++  NSDictionary *matching = @{
++    @kIOHIDVendorIDKey : @(NSOGC_VENDOR_ID),
++    @kIOHIDProductIDKey : @(NSOGC_PRODUCT_ID),
++  };
++  IOHIDManagerSetDeviceMatching(_hidManager, (__bridge CFDictionaryRef)matching);
++  IOHIDManagerRegisterDeviceMatchingCallback(_hidManager, NSOGCHIDMatched, (__bridge void *)self);
++  IOHIDManagerRegisterDeviceRemovalCallback(_hidManager, NSOGCHIDRemoved, (__bridge void *)self);
++  IOHIDManagerRegisterInputReportCallback(_hidManager, NSOGCHIDReport, (__bridge void *)self);
++  IOHIDManagerSetDispatchQueue(_hidManager, _queue);
++  IOHIDManagerRef manager = _hidManager;
++  IOHIDManagerSetCancelHandler(_hidManager, ^{
++    CFRelease(manager);
++  });
++  IOReturn opened = IOHIDManagerOpen(_hidManager, kIOHIDOptionsTypeNone);
++  if (opened != kIOReturnSuccess)
++    [self log:@"USB: cannot open HID devices (0x%08X)", opened];
++  IOHIDManagerActivate(_hidManager);
++  [self log:@"USB: watching for wired controllers"];
++}
++
++- (void)stopUSB {
++  if (_hidManager == NULL)
++    return;
++  IOHIDManagerClose(_hidManager, kIOHIDOptionsTypeNone);
++  IOHIDManagerCancel(_hidManager);
++  _hidManager = NULL;
++}
++
++- (NSOGCController *)wiredControllerForDevice:(IOHIDDeviceRef)device {
++  for (NSOGCController *controller in _tracked.allValues)
++    if (controller.wired && controller.hidDevice == device)
++      return controller;
++  return nil;
++}
++
++- (void)wiredDeviceAppeared:(IOHIDDeviceRef)device {
++  if (!_wantsRunning || [self wiredControllerForDevice:device] != nil)
++    return;
++  if ([self readyCount] >= _maximumControllers) {
++    [self log:@"USB: a controller is plugged in, but %lu are connected already",
++              (unsigned long)_maximumControllers];
++    return;
++  }
++  NSOGCController *controller = [[NSOGCController alloc] initWithHIDDevice:device
++                                                                   manager:self
++                                                                     queue:_queue
++                                                             callbackQueue:_callbackQueue];
++  _tracked[controller.identifier] = controller;
++  [controller startWired];
++}
++
++- (void)wiredDeviceRemoved:(IOHIDDeviceRef)device {
++  NSOGCController *controller = [self wiredControllerForDevice:device];
++  if (controller == nil)
++    return;
++  [self log:@"%@ unplugged", controller.name];
++  [self wiredControllerGone:controller];
++}
++#endif
++
++#pragma mark - CBCentralManagerDelegate
++
++- (void)centralManagerDidUpdateState:(CBCentralManager *)central {
++  [self log:@"Bluetooth %@", NSOGCStateName(central.state)];
++  if (central.state == CBManagerStateUnauthorized)
++    [self log:@"allow Bluetooth for this app in Settings, then open it again"];
++  BOOL available = central.state == CBManagerStatePoweredOn;
++  [self notifyDelegate:^(id<NSOGCManagerDelegate> delegate) {
++    [delegate manager:self bluetoothAvailabilityDidChange:available];
++  } selector:@selector(manager:bluetoothAvailabilityDidChange:)];
++  if (available) {
++    [self resume];
++  } else {
++    // Bluetooth went away, and every Bluetooth connection with it.
++    [self setScanningFlag:NO];
++    for (NSOGCController *controller in _tracked.allValues) {
++      if (controller.wired)
++        continue;
++      BOOL wasReady = controller.status == NSOGCControllerStatusReady;
++      [controller didDisconnect];
++      [_tracked removeObjectForKey:controller.identifier];
++      if (wasReady)
++        [self notifyDelegate:^(id<NSOGCManagerDelegate> delegate) {
++          [delegate manager:self didDisconnectController:controller];
++        } selector:@selector(manager:didDisconnectController:)];
++    }
++    [self refreshReadyControllers];
++  }
++}
++
++- (void)centralManager:(CBCentralManager *)central
++    didDiscoverPeripheral:(CBPeripheral *)peripheral
++        advertisementData:(NSDictionary<NSString *, id> *)advertisementData
++                     RSSI:(NSNumber *)RSSI {
++  if (_tracked[peripheral.identifier] != nil || !_wantsRunning)
++    return;
++  NSData *manufacturer = advertisementData[CBAdvertisementDataManufacturerDataKey];
++  NSString *name = advertisementData[CBAdvertisementDataLocalNameKey] ?: peripheral.name;
++  const uint8_t *bytes = manufacturer.bytes;
++  uint16_t company = manufacturer.length >= 2 ? (uint16_t)(bytes[0] | (bytes[1] << 8)) : 0;
++  BOOL nintendo = company == NSOGC_COMPANY_ID_SWITCH2 || company == NSOGC_COMPANY_ID_CLASSIC;
++  // The controller's GAP name is literally "DeviceName".
++  BOOL nameMatches = [name isEqualToString:@"DeviceName"] ||
++                     [name localizedCaseInsensitiveContainsString:@"GameCube"];
++  if (!nintendo && !nameMatches)
++    return;
++
++  uint16_t product = 0;
++  BOOL matches = nintendo
++                     ? nsogc_advertisement_matches(manufacturer.bytes, manufacturer.length, &product)
++                     : manufacturer.length == 0;
++  if (![_reported containsObject:peripheral.identifier]) {
++    [_reported addObject:peripheral.identifier];
++    [self log:@"found %@ (RSSI %@, product 0x%04X, manufacturer data %@)",
++              name ?: @"an unnamed device", RSSI, product, NSOGCHexData(manufacturer)];
++    if (!matches)
++      [self log:@"not the GameCube controller, ignored"];
++  }
++  if (!matches)
++    return;
++  if ([advertisementData[CBAdvertisementDataIsConnectable] isEqual:@NO])
++    return;
++  NSNumber *failure = _lastFailure[peripheral.identifier];
++  if (failure != nil && CFAbsoluteTimeGetCurrent() - failure.doubleValue < kRetryBackoff)
++    return;
++  if ([self readyCount] >= _maximumControllers)
++    return;
++  [self connect:peripheral reason:@"advertising"];
++}
++
++- (void)centralManager:(CBCentralManager *)central didConnectPeripheral:(CBPeripheral *)peripheral {
++  NSOGCController *controller = _tracked[peripheral.identifier];
++  if (controller == nil) {
++    [central cancelPeripheralConnection:peripheral];
++    return;
++  }
++  [controller didConnect];
++}
++
++- (void)centralManager:(CBCentralManager *)central
++    didFailToConnectPeripheral:(CBPeripheral *)peripheral
++                         error:(NSError *)error {
++  NSOGCController *controller = _tracked[peripheral.identifier];
++  [self log:@"could not connect to %@: %@", controller.name ?: peripheral.identifier.UUIDString,
++            error.localizedDescription ?: @"unknown error"];
++  [_tracked removeObjectForKey:peripheral.identifier];
++  _lastFailure[peripheral.identifier] = @(CFAbsoluteTimeGetCurrent());
++  [self updateScanning];
++}
++
++- (void)centralManager:(CBCentralManager *)central
++    didDisconnectPeripheral:(CBPeripheral *)peripheral
++                      error:(NSError *)error {
++  NSOGCController *controller = _tracked[peripheral.identifier];
++  if (controller == nil)
++    return;
++  BOOL wasReady = controller.status == NSOGCControllerStatusReady;
++  [controller didDisconnect];
++  [_tracked removeObjectForKey:peripheral.identifier];
++  [self log:@"%@ disconnected%@", controller.name,
++            error ? [@": " stringByAppendingString:error.localizedDescription] : @""];
++  if ([error.domain isEqualToString:CBErrorDomain] &&
++      error.code == CBErrorPeerRemovedPairingInformation)
++    [self log:@"the controller dropped its pairing: forget it in Settings > Bluetooth, "
++              @"then press SYNC again"];
++  if (wasReady) {
++    [self refreshReadyControllers];
++    [self notifyDelegate:^(id<NSOGCManagerDelegate> delegate) {
++      [delegate manager:self didDisconnectController:controller];
++    } selector:@selector(manager:didDisconnectController:)];
++  }
++  // Wait for it to come back: a pending connection costs nothing.
++  if (_wantsRunning && [[self knownIdentifiers] containsObject:peripheral.identifier])
++    [self connect:peripheral reason:@"reconnecting when it is back"];
++  [self updateScanning];
++}
++
++@end
+diff --git a/apple/ios/NSOGC/README.md b/apple/ios/NSOGC/README.md
+new file mode 100644
+index 0000000..72fd537
+--- /dev/null
++++ b/apple/ios/NSOGC/README.md
+@@ -0,0 +1,10 @@
++# NSOGC
++
++Vendored copy of NSOGCKit from
++[pookee/nso-gamecube-ios](https://github.com/pookee/nso-gamecube-ios)
++(`Sources/NSOGCKit`, with `include/` flattened) at commit `a6a82e8`: the Nintendo Switch Online
++GameCube controller made for the Switch 2 over Bluetooth LE. iOS has no driver
++for it, so the app connects it itself through CoreBluetooth.
++
++`MeleePadNSOGCBridge` makes up to four of them players 1 to 4. Update these
++files from that repository rather than editing them here.
+diff --git a/apple/ios/NSOGC/nsogc_protocol.c b/apple/ios/NSOGC/nsogc_protocol.c
+new file mode 100644
+index 0000000..dfba0ed
+--- /dev/null
++++ b/apple/ios/NSOGC/nsogc_protocol.c
+@@ -0,0 +1,245 @@
++#include "nsogc_protocol.h"
++
++#include <math.h>
++#include <string.h>
++
++static uint16_t read_u16le(const uint8_t *p) {
++  return (uint16_t)(p[0] | (p[1] << 8));
++}
++
++// Two 12-bit axes packed into three bytes: X in the low 12 bits.
++static void unpack_stick(const uint8_t *p, uint16_t *x, uint16_t *y) {
++  *x = (uint16_t)(p[0] | ((p[1] & 0x0F) << 8));
++  *y = (uint16_t)((p[1] >> 4) | (p[2] << 4));
++}
++
++// Reports in the Switch Pro layout carry the GameCube buttons at other bits.
++static uint32_t remap_pro_buttons(uint8_t b0, uint8_t b1, uint8_t b2) {
++  uint32_t buttons = 0;
++  if (b0 & 0x01) buttons |= NSOGC_BUTTON_Y;
++  if (b0 & 0x02) buttons |= NSOGC_BUTTON_X;
++  if (b0 & 0x04) buttons |= NSOGC_BUTTON_B;
++  if (b0 & 0x08) buttons |= NSOGC_BUTTON_A;
++  if (b0 & 0x10) buttons |= NSOGC_BUTTON_R;
++  if (b0 & 0x20) buttons |= NSOGC_BUTTON_Z;
++  if (b1 & 0x02) buttons |= NSOGC_BUTTON_START;
++  if (b1 & 0x10) buttons |= NSOGC_BUTTON_HOME;
++  if (b1 & 0x20) buttons |= NSOGC_BUTTON_CAPTURE;
++  if (b2 & 0x01) buttons |= NSOGC_BUTTON_DPAD_DOWN;
++  if (b2 & 0x02) buttons |= NSOGC_BUTTON_DPAD_UP;
++  if (b2 & 0x04) buttons |= NSOGC_BUTTON_DPAD_RIGHT;
++  if (b2 & 0x08) buttons |= NSOGC_BUTTON_DPAD_LEFT;
++  if (b2 & 0x40) buttons |= NSOGC_BUTTON_L;
++  if (b2 & 0x80) buttons |= NSOGC_BUTTON_ZL;
++  return buttons;
++}
++
++nsogc_report_format nsogc_parse_report(const uint8_t *data, size_t length,
++                                       nsogc_raw_input *out) {
++  if (out == NULL)
++    return NSOGC_REPORT_INVALID;
++  memset(out, 0, sizeof *out);
++  if (data == NULL || length < NSOGC_MIN_INPUT_REPORT_SIZE)
++    return NSOGC_REPORT_INVALID;
++
++  out->counter = data[0];
++  if (length == NSOGC_NATIVE_REPORT_SIZE) {
++    out->buttons = (uint32_t)data[2] | ((uint32_t)data[3] << 8) |
++                   ((uint32_t)(data[4] & 0x1F) << 16);
++    unpack_stick(data + 5, &out->stick_x, &out->stick_y);
++    unpack_stick(data + 8, &out->cstick_x, &out->cstick_y);
++    out->trigger_l = data[12];
++    out->trigger_r = data[13];
++    return NSOGC_REPORT_NATIVE;
++  }
++  if (data[0] == 0x30) {
++    out->buttons = remap_pro_buttons(data[3], data[4], data[5]);
++    unpack_stick(data + 6, &out->stick_x, &out->stick_y);
++    unpack_stick(data + 9, &out->cstick_x, &out->cstick_y);
++    out->trigger_l = data[14];
++    out->trigger_r = data[15];
++    return NSOGC_REPORT_PRO_FULL;
++  }
++  out->buttons = remap_pro_buttons(data[2], data[3], data[4]);
++  unpack_stick(data + 5, &out->stick_x, &out->stick_y);
++  unpack_stick(data + 8, &out->cstick_x, &out->cstick_y);
++  out->trigger_l = data[13];
++  out->trigger_r = data[14];
++  return NSOGC_REPORT_PRO_SHORT;
++}
++
++nsogc_report_format nsogc_parse_usb_report(const uint8_t *data, size_t length,
++                                           nsogc_raw_input *out) {
++  if (data != NULL && length == NSOGC_USB_REPORT_SIZE && data[0] == NSOGC_USB_REPORT_ID)
++    return nsogc_parse_report(data + 1, NSOGC_NATIVE_REPORT_SIZE, out);
++  return nsogc_parse_report(data, length, out);
++}
++
++void nsogc_calibration_default(nsogc_calibration *calibration) {
++  if (calibration == NULL)
++    return;
++  calibration->stick_center_x = 2048.0f;
++  calibration->stick_center_y = 2048.0f;
++  calibration->stick_range_x = 1220.0f;
++  calibration->stick_range_y = 1290.0f;
++  calibration->cstick_center_x = 2048.0f;
++  calibration->cstick_center_y = 2048.0f;
++  calibration->cstick_range_x = 1150.0f;
++  calibration->cstick_range_y = 1200.0f;
++  calibration->trigger_l_rest = 34.0f;
++  calibration->trigger_l_full = 230.0f;
++  calibration->trigger_r_rest = 34.0f;
++  calibration->trigger_r_full = 230.0f;
++  calibration->stick_deadzone = 0.05f;
++}
++
++static float clampf(float value, float low, float high) {
++  return value < low ? low : (value > high ? high : value);
++}
++
++// Radial dead zone, then the output is rescaled to start at 0 just past it
++// and kept inside the unit circle.
++static void normalize_stick(uint16_t raw_x, uint16_t raw_y, float center_x,
++                            float center_y, float range_x, float range_y,
++                            float deadzone, float *out_x, float *out_y) {
++  float x = ((float)raw_x - center_x) / fmaxf(range_x, 1.0f);
++  float y = ((float)raw_y - center_y) / fmaxf(range_y, 1.0f);
++  float magnitude = sqrtf(x * x + y * y);
++  deadzone = clampf(deadzone, 0.0f, 0.9f);
++  if (magnitude <= deadzone) {
++    *out_x = 0.0f;
++    *out_y = 0.0f;
++    return;
++  }
++  float scaled = (fminf(magnitude, 1.0f) - deadzone) / (1.0f - deadzone);
++  *out_x = clampf(x / magnitude * scaled, -1.0f, 1.0f);
++  *out_y = clampf(y / magnitude * scaled, -1.0f, 1.0f);
++}
++
++static float normalize_trigger(uint8_t raw, float rest, float full) {
++  float span = fmaxf(full - rest, 1.0f);
++  return clampf(((float)raw - rest) / span, 0.0f, 1.0f);
++}
++
++void nsogc_normalize(const nsogc_raw_input *raw,
++                     const nsogc_calibration *calibration, nsogc_state *out) {
++  if (out == NULL)
++    return;
++  memset(out, 0, sizeof *out);
++  if (raw == NULL)
++    return;
++  nsogc_calibration defaults;
++  if (calibration == NULL) {
++    nsogc_calibration_default(&defaults);
++    calibration = &defaults;
++  }
++  out->buttons = raw->buttons;
++  normalize_stick(raw->stick_x, raw->stick_y, calibration->stick_center_x,
++                  calibration->stick_center_y, calibration->stick_range_x,
++                  calibration->stick_range_y, calibration->stick_deadzone,
++                  &out->stick_x, &out->stick_y);
++  normalize_stick(raw->cstick_x, raw->cstick_y, calibration->cstick_center_x,
++                  calibration->cstick_center_y, calibration->cstick_range_x,
++                  calibration->cstick_range_y, calibration->stick_deadzone,
++                  &out->cstick_x, &out->cstick_y);
++  out->trigger_l = normalize_trigger(raw->trigger_l, calibration->trigger_l_rest,
++                                     calibration->trigger_l_full);
++  out->trigger_r = normalize_trigger(raw->trigger_r, calibration->trigger_r_rest,
++                                     calibration->trigger_r_full);
++}
++
++// Every command starts with its ID, the request type 0x91, the interface
++// (0x01 for Bluetooth), a sub-command, 0x00, the payload length and 0x0000.
++static size_t command_header(uint8_t *out, uint8_t command, uint8_t interface,
++                             uint8_t subcommand, uint8_t payload_length) {
++  out[0] = command;
++  out[1] = 0x91;
++  out[2] = interface;
++  out[3] = subcommand;
++  out[4] = 0x00;
++  out[5] = payload_length;
++  out[6] = 0x00;
++  out[7] = 0x00;
++  return 8;
++}
++
++size_t nsogc_command_spi_read(uint8_t out[16], uint32_t address, uint8_t size) {
++  size_t n = command_header(out, 0x02, 0x01, 0x04, 0x08);
++  out[n++] = size;
++  out[n++] = 0x7E;
++  out[n++] = 0x00;
++  out[n++] = 0x00;
++  out[n++] = (uint8_t)(address & 0xFF);
++  out[n++] = (uint8_t)((address >> 8) & 0xFF);
++  out[n++] = (uint8_t)((address >> 16) & 0xFF);
++  out[n++] = (uint8_t)((address >> 24) & 0xFF);
++  return n;
++}
++
++size_t nsogc_command_player_leds(uint8_t out[16], uint8_t mask) {
++  size_t n = command_header(out, 0x09, 0x01, 0x07, 0x08);
++  memset(out + n, 0, 8);
++  out[n] = mask;
++  return n + 8;
++}
++
++size_t nsogc_command_vibration(uint8_t out[12], bool on) {
++  size_t n = command_header(out, 0x0A, 0x01, 0x02, 0x04);
++  memset(out + n, 0, 4);
++  out[n] = on ? 0x01 : 0x00;
++  return n + 4;
++}
++
++size_t nsogc_command_default_report(uint8_t out[16]) {
++  size_t n = command_header(out, 0x03, 0x00, 0x0D, 0x08);
++  out[n++] = 0x01;
++  out[n++] = 0x00;
++  memset(out + n, 0xFF, 6);
++  return n + 6;
++}
++
++void nsogc_command_for_usb(uint8_t *frame, size_t length) {
++  if (frame != NULL && length > 2)
++    frame[2] = 0x00;
++}
++
++uint8_t nsogc_player_led_mask(int player) {
++  static const uint8_t masks[4] = {0x01, 0x03, 0x07, 0x0F};
++  if (player < 0)
++    player = 0;
++  if (player > 3)
++    player = 3;
++  return masks[player];
++}
++
++bool nsogc_find_vendor_product(const uint8_t *data, size_t length,
++                               uint16_t *product_id) {
++  if (data == NULL)
++    return false;
++  for (size_t i = 0; i + 3 < length; i++) {
++    if (read_u16le(data + i) == NSOGC_VENDOR_ID) {
++      if (product_id != NULL)
++        *product_id = read_u16le(data + i + 2);
++      return true;
++    }
++  }
++  return false;
++}
++
++bool nsogc_advertisement_matches(const uint8_t *data, size_t length,
++                                 uint16_t *product_id) {
++  if (product_id != NULL)
++    *product_id = 0;
++  if (data == NULL || length < 2)
++    return false;
++  uint16_t company = read_u16le(data);
++  if (company != NSOGC_COMPANY_ID_SWITCH2 && company != NSOGC_COMPANY_ID_CLASSIC)
++    return false;
++  uint16_t product = 0;
++  if (nsogc_find_vendor_product(data + 2, length - 2, &product)) {
++    if (product_id != NULL)
++      *product_id = product;
++    return product == NSOGC_PRODUCT_ID;
++  }
++  return true;
++}
+diff --git a/apple/ios/NSOGC/nsogc_protocol.h b/apple/ios/NSOGC/nsogc_protocol.h
+new file mode 100644
+index 0000000..7bc826a
+--- /dev/null
++++ b/apple/ios/NSOGC/nsogc_protocol.h
+@@ -0,0 +1,143 @@
++// Protocol layer for the Nintendo Switch Online GameCube controller made for
++// the Switch 2 (vendor 0x057E, product 0x2073) over Bluetooth LE: input report
++// decoding, stick and trigger normalization, command frames and advertisement
++// matching. Plain C with no platform dependency, so it can be unit tested on
++// any host and shared by Objective-C, C++ and Swift code.
++
++#pragma once
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define NSOGC_VENDOR_ID 0x057E
++#define NSOGC_PRODUCT_ID 0x2073
++
++// Bluetooth SIG company identifiers Nintendo advertises with: 0x0553 on the
++// Switch 2 controllers, 0x037E on older ones.
++#define NSOGC_COMPANY_ID_SWITCH2 0x0553
++#define NSOGC_COMPANY_ID_CLASSIC 0x037E
++
++// Length of the controller's native input report.
++#define NSOGC_NATIVE_REPORT_SIZE 63
++
++// Shorter notifications are command responses, never input.
++#define NSOGC_MIN_INPUT_REPORT_SIZE 30
++
++// Buttons, in GameCube terms. Bits 0-7, 8-15 and 16-23 are bytes 2, 3 and 4
++// of the native report, so a native report is used without remapping.
++typedef enum {
++  NSOGC_BUTTON_B = 1u << 0,
++  NSOGC_BUTTON_A = 1u << 1,
++  NSOGC_BUTTON_Y = 1u << 2,
++  NSOGC_BUTTON_X = 1u << 3,
++  NSOGC_BUTTON_R = 1u << 4,      // digital click at the end of the R trigger
++  NSOGC_BUTTON_Z = 1u << 5,
++  NSOGC_BUTTON_START = 1u << 6,
++  NSOGC_BUTTON_DPAD_DOWN = 1u << 8,
++  NSOGC_BUTTON_DPAD_RIGHT = 1u << 9,
++  NSOGC_BUTTON_DPAD_LEFT = 1u << 10,
++  NSOGC_BUTTON_DPAD_UP = 1u << 11,
++  NSOGC_BUTTON_L = 1u << 12,     // digital click at the end of the L trigger
++  NSOGC_BUTTON_ZL = 1u << 13,
++  NSOGC_BUTTON_HOME = 1u << 16,
++  NSOGC_BUTTON_CAPTURE = 1u << 17,
++  NSOGC_BUTTON_GR = 1u << 18,
++  NSOGC_BUTTON_GL = 1u << 19,
++  NSOGC_BUTTON_CHAT = 1u << 20,
++} nsogc_button;
++
++// Values as the controller sends them.
++typedef struct {
++  uint8_t counter;              // increments with every report
++  uint32_t buttons;             // nsogc_button bits
++  uint16_t stick_x, stick_y;    // 12-bit, centre about 2048, right and up are larger
++  uint16_t cstick_x, cstick_y;  // same for the C-stick
++  uint8_t trigger_l, trigger_r; // analog, about 34 at rest and 235 fully pressed
++} nsogc_raw_input;
++
++typedef enum {
++  NSOGC_REPORT_INVALID = 0,
++  NSOGC_REPORT_NATIVE,     // 63 bytes, GameCube button order
++  NSOGC_REPORT_PRO_FULL,   // starts with report ID 0x30, Switch Pro button order
++  NSOGC_REPORT_PRO_SHORT,  // Switch Pro button order without the report ID
++} nsogc_report_format;
++
++// Decodes one input notification. Returns NSOGC_REPORT_INVALID, and leaves
++// *out zeroed, when the data is not an input report.
++nsogc_report_format nsogc_parse_report(const uint8_t *data, size_t length,
++                                       nsogc_raw_input *out);
++
++// Over USB the controller is a HID gamepad. Once initialized (two commands
++// on interface 1's bulk OUT endpoint) it sends 64-byte input reports with
++// report ID 0x0A, followed by the native report.
++#define NSOGC_USB_REPORT_ID 0x0A
++#define NSOGC_USB_REPORT_SIZE 64
++#define NSOGC_USB_COMMAND_INTERFACE 1
++
++// Decodes one USB input report, with or without its leading report ID.
++nsogc_report_format nsogc_parse_usb_report(const uint8_t *data, size_t length,
++                                           nsogc_raw_input *out);
++
++typedef struct {
++  float stick_center_x, stick_center_y, stick_range_x, stick_range_y;
++  float cstick_center_x, cstick_center_y, cstick_range_x, cstick_range_y;
++  float trigger_l_rest, trigger_l_full, trigger_r_rest, trigger_r_full;
++  float stick_deadzone;  // radial, as a fraction of the range
++} nsogc_calibration;
++
++// Ranges measured on this controller by the NSO GameCube Controller Pairing
++// App (centre 2048, stick ranges 1150-1290, triggers 34 to about 235).
++void nsogc_calibration_default(nsogc_calibration *calibration);
++
++// Normalized input, ready for a game.
++typedef struct {
++  uint32_t buttons;           // nsogc_button bits
++  float stick_x, stick_y;     // -1...1, right and up positive, inside the unit circle
++  float cstick_x, cstick_y;
++  float trigger_l, trigger_r; // 0...1
++} nsogc_state;
++
++void nsogc_normalize(const nsogc_raw_input *raw,
++                     const nsogc_calibration *calibration, nsogc_state *out);
++
++// Command frames. Each writes the frame into out (sized as noted) and returns
++// its length. Over Bluetooth they go to the command characteristic; over USB
++// to interface 1's bulk OUT endpoint, after nsogc_command_for_usb.
++#define NSOGC_COMMAND_MAX_SIZE 16
++
++size_t nsogc_command_spi_read(uint8_t out[16], uint32_t address, uint8_t size);
++size_t nsogc_command_player_leds(uint8_t out[16], uint8_t mask);
++size_t nsogc_command_vibration(uint8_t out[12], bool on);
++size_t nsogc_command_default_report(uint8_t out[16]);
++
++// Byte 2 of a command names the interface it travels on: 0x01 over
++// Bluetooth, as the builders write it, 0x00 over USB. This rewrites it.
++void nsogc_command_for_usb(uint8_t *frame, size_t length);
++
++// SPI flash address of the device information block (serial number, vendor
++// and product ID).
++#define NSOGC_SPI_DEVICE_INFO 0x00013000u
++
++// Player LED mask for a 0-based player index: 1, 2, 3 or 4 LEDs lit.
++uint8_t nsogc_player_led_mask(int player);
++
++// Matches a Bluetooth advertisement's manufacturer data (company ID first,
++// little-endian). Writes the advertised product ID, or 0 when the data has
++// none, to *product_id. True for the GameCube controller, and for Nintendo
++// data without a product ID (the device information read confirms it).
++bool nsogc_advertisement_matches(const uint8_t *data, size_t length,
++                                 uint16_t *product_id);
++
++// Looks for Nintendo's vendor ID followed by a product ID, as in the device
++// information block. True when found.
++bool nsogc_find_vendor_product(const uint8_t *data, size_t length,
++                               uint16_t *product_id);
++
++#ifdef __cplusplus
++}
++#endif
+-- 
+2.54.0 (Apple Git-157)
+

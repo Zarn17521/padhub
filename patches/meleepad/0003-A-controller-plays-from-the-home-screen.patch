@@ -1,7 +1,7 @@
 From c2dfa1381f81c21a475ecd0ac5c74d0049fc9c38 Mon Sep 17 00:00:00 2001
 From: pookee <13053375+pookee@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 02:59:08 +0100
-Subject: [PATCH 3/4] A controller plays from the home screen
+Subject: [PATCH 3/5] A controller plays from the home screen
 
 A or Start on any controller does what Play does, so the home screen no
 longer needs a touch when the game is played with a controller (or from

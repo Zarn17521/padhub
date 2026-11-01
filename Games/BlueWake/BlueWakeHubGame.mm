@@ -10,6 +10,7 @@
 #define BOOL DOLPHIN_BOOL
 #include <dolphin/pad.h>
 #undef BOOL
+#include <atomic>
 #include <math.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -73,8 +74,8 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
     BOOL _stopping;  // the loop is asked to end
     BOOL _ended;     // the loop has ended: the game cannot start again before PadHub restarts
     void (^_stopCompletion)(BOOL stopped);
-    BOOL _inFront;
-    uint32_t _homeDown;  // players whose NSO controller has HOME down
+    std::atomic<bool> _inFront;     // read on the Bluetooth queue
+    std::atomic<uint32_t> _homeDown;  // players whose NSO controller has HOME down
 }
 
 - (instancetype)initWithExitHandler:(void (^)(void))exitHandler {
@@ -236,15 +237,18 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
 - (void)takeNSOControllers {
     NSOGCManager *manager = NSOGCManager.sharedManager;
     manager.maximumControllers = 4;
-    manager.deliversInputOnBluetoothQueue = NO;  // the game reads its pads on the main thread
+    // Reports set the GameCube pads from the Bluetooth queue, so the game's next read sees them: on
+    // the main queue they waited for the game's loop to hand UIKit its events, up to a frame.
+    manager.deliversInputOnBluetoothQueue = YES;
     manager.delegate = self;
     for (NSOGCController *controller in manager.controllers)
         [self listenTo:controller];
     // HOME, still down from bringing the game back, is not a new press.
-    _homeDown = 0;
+    uint32_t homeDown = 0;
     for (NSOGCController *controller in manager.controllers)
         if (controller.playerIndex >= 0 && (controller.state.buttons & NSOGC_BUTTON_HOME))
-            _homeDown |= 1u << controller.playerIndex;
+            homeDown |= 1u << controller.playerIndex;
+    _homeDown.store(homeDown);
     [manager start];
     bluewake_shell_set_external_controller(manager.controllers.count > 0);
 }
@@ -256,18 +260,21 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
     };
 }
 
+// The Bluetooth queue. The game reads its pads on the main thread; a read that overlaps a write can
+// only mix this report with the last one, for that read.
 - (void)controller:(NSOGCController *)controller changedTo:(nsogc_state)state {
     const NSInteger player = controller.playerIndex;
     if (player < 0 || player >= PAD_CHANMAX)
         return;
     const uint32_t bit = 1u << player;
     const BOOL home = (state.buttons & NSOGC_BUTTON_HOME) != 0;
-    const BOOL pressed = home && !(_homeDown & bit);
-    _homeDown = home ? _homeDown | bit : _homeDown & ~bit;
-    if (!_inFront)
+    const uint32_t before = home ? _homeDown.fetch_or(bit) : _homeDown.fetch_and(~bit);
+    const BOOL pressed = home && !(before & bit);
+    if (!_inFront.load())
         return;
     if (pressed) {
-        _exitToHub();
+        void (^exitToHub)(void) = _exitToHub;
+        dispatch_async(dispatch_get_main_queue(), exitToHub);
         return;
     }
     const uint32_t b = state.buttons;
@@ -301,6 +308,7 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
 }
 
 - (void)manager:(NSOGCManager *)manager didDisconnectController:(NSOGCController *)controller {
+    controller.inputHandler = nil;
     if (controller.playerIndex >= 0 && controller.playerIndex < PAD_CHANMAX)
         PADClearVirtualStatus((u32)controller.playerIndex);
     BOOL others = NO;

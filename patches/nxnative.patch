@@ -1564,7 +1564,7 @@ index b1345d40..1cb23ebc 100644
 +    if (g_keyown) pthread_key_delete(g_keyown);
 +}
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index a079d7f2..c04ae57d 100644
+index a079d7f2..143087b2 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -27,6 +27,7 @@
@@ -1657,9 +1657,9 @@ index a079d7f2..c04ae57d 100644
 +    __block uint32_t previous = 0;
 +    c.inputHandler = ^(NSOGCController *ctl, nsogc_state s) {
 +        (void)ctl;
-+        dm_pad_set_player(p, nso_buttons(s), axis(s.stick_x), axis(s.stick_y), axis(s.cstick_x), axis(s.cstick_y));
++        dm_pad_set_player(p, nso_buttons(s), axis(s.stick_x), axis(s.stick_y), axis(s.cstick_x), axis(s.cstick_y));   // atomics: any thread
 +        uint32_t pressed = s.buttons & ~previous; previous = s.buttons;
-+        if ((pressed & NSOGC_BUTTON_HOME) && g_home_handler) g_home_handler();
++        if (pressed & NSOGC_BUTTON_HOME) dispatch_async(dispatch_get_main_queue(), ^{ if (g_home_handler) g_home_handler(); });   // the host's menu is UI
 +    };
 +}
 +
@@ -1670,7 +1670,7 @@ index a079d7f2..c04ae57d 100644
 +    if (g_nso && m.delegate == g_nso) return;
 +    if (!g_nso) g_nso = [DmNSOPads new];
 +    m.maximumControllers = 4;
-+    m.deliversInputOnBluetoothQueue = NO;   // on the main queue, like the GameController handlers and the slot table
++    m.deliversInputOnBluetoothQueue = YES;   // reports go to the game from the Bluetooth queue (dm_pad_set_player is atomic), not after the main thread; the delegate and the slot table stay on the main queue
 +    m.delegate = g_nso;
 +    m.logHandler = ^(NSString *line) { LOG("nsogc %s", line.UTF8String); };
 +    NSArray<NSOGCController *> *ready = m.controllers;

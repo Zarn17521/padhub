@@ -279,7 +279,7 @@ struct GameMenuView: View {
       .frame(width: 26)
       VStack(alignment: .leading, spacing: 1) {
         Text(controller.name).font(.body.weight(.semibold))
-        Text([controller.player.map { "Player \($0)" }, controller.detail].compactMap { $0 }.joined(separator: " · "))
+        Text(controller.detail)
           .font(.caption)
           .foregroundStyle(.secondary)
       }

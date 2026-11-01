@@ -24,7 +24,7 @@ struct SettingsView: View {
             HStack {
               VStack(alignment: .leading) {
                 Text(controller.name)
-                Text([controller.player.map { "Player \($0)" }, controller.detail].compactMap { $0 }.joined(separator: " · "))
+                Text(controller.detail)
                   .font(.caption)
                   .foregroundStyle(.secondary)
               }

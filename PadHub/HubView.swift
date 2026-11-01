@@ -91,7 +91,8 @@ struct HubView: View {
         Image("Logo")
           .resizable()
           .scaledToFit()
-          .frame(height: layout.compact ? 34 : 44)
+          // A fixed size: on a narrow screen the controller status gives way, not the logo.
+          .frame(width: layout.compact ? 34 : 44, height: layout.compact ? 34 : 44)
           .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
         Text("PadHub")
           .font(.system(size: layout.compact ? 26 : 34, weight: .black, design: .rounded))
@@ -146,6 +147,8 @@ struct HubView: View {
       .scrollTargetLayout()
     }
     .scrollIndicators(.hidden)
+    // The selected card's glow reaches past the carousel: draw it whole.
+    .scrollClipDisabled()
     .scrollTargetBehavior(.viewAligned)
     .scrollPosition(id: $selection, anchor: .center)
     // The selected card stops in the middle, the first and last ones too.

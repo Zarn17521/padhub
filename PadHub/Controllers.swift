@@ -12,7 +12,8 @@ import SwiftUI
 final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
   enum Command { case left, right, up, down, confirm, back, option, menu, home }
 
-  /// A controller as the controller settings list it.
+  /// A controller as the controller settings list it: "Controller 1" for
+  /// player 1, with what it is underneath.
   struct Connected: Identifiable, Hashable {
     enum Kind { case nso, other }
     let id: String
@@ -20,7 +21,7 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
     let kind: Kind
     /// 1 for player 1, when the controller has a player.
     let player: Int?
-    /// How it is connected, and its battery when iOS knows it.
+    /// What it is, how it is connected, and its battery when iOS knows it.
     let detail: String
   }
 
@@ -43,8 +44,7 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
 
   var statusText: String {
     if connected.count > 1 { return "\(connected.count) controllers" }
-    if let nsoController { return nsoController.name }
-    if let otherControllerName { return otherControllerName }
+    if let only = connected.first { return only.name }
     return bluetoothOn ? "Press SYNC on your controller" : "Bluetooth is off"
   }
 
@@ -155,23 +155,24 @@ final class Controllers: NSObject, ObservableObject, NSOGCManagerDelegate {
     nsoController = manager.controllers.first
     scanning = manager.isScanning
     var list = manager.controllers.map { controller in
-      Connected(
-        id: controller.identifier.uuidString, name: controller.name, kind: .nso,
-        player: controller.playerIndex >= 0 ? controller.playerIndex + 1 : nil,
-        detail: controller.isWired ? "USB" : "Bluetooth")
+      let player = controller.playerIndex >= 0 ? controller.playerIndex + 1 : nil
+      return Connected(
+        id: controller.identifier.uuidString, name: player.map { "Controller \($0)" } ?? "Controller",
+        kind: .nso, player: player,
+        detail: "NSO GameCube · " + (controller.isWired ? "USB" : "Bluetooth"))
     }
     for controller in GCController.controllers() where controller.extendedGamepad != nil {
       let player = controller.playerIndex == .indexUnset ? nil : controller.playerIndex.rawValue + 1
-      var detail = controller.isAttachedToDevice ? "Attached" : "Wireless"
+      var detail = (controller.vendorName ?? "Controller") + (controller.isAttachedToDevice ? " · Attached" : "")
       if let battery = controller.battery, battery.batteryState != .unknown {
         detail += " · \(Int((battery.batteryLevel * 100).rounded())) %"
       }
       list.append(
         Connected(
-          id: Self.id(of: controller), name: controller.vendorName ?? "Controller", kind: .other,
-          player: player, detail: detail))
+          id: Self.id(of: controller), name: player.map { "Controller \($0)" } ?? "Controller",
+          kind: .other, player: player, detail: detail))
     }
-    connected = list
+    connected = list.sorted { ($0.player ?? 9) < ($1.player ?? 9) }
   }
 
   private static func id(of controller: GCController) -> String {

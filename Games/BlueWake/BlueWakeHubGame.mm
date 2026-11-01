@@ -23,13 +23,20 @@ extern "C" {
 // the host.
 extern "C" int bluewake_padhub_main(int argc, char **argv);
 extern "C" void bluewake_shell_set_host_menu(NSArray<UIMenuElement *> *items);
+// GXRuntime's Aurora backend: set, the game's loop ends at its next turn and runs its teardown (BlueWake main.c).
+namespace gx_aurora {
+extern bool g_should_quit;
+}
 
 /* BlueWake's Wind Waker inside PadHub. The game's loop owns the main thread once it has started: PadHub
  * starts it from a run-loop timer, and PadHub's own screens then run inside it, each time the game hands
  * UIKit its events. The game draws in SDL's own window, which hides behind PadHub's menu (a picture of the
- * paused game stands in) and comes back on resume. It cannot end before the process does (canStop): when
- * PadHub closes, an exit handler writes the memory card out first. NSO GameCube controllers reach the game
- * as GameCube pads (each controller's player is its port), and their HOME button brings up PadHub's menu. */
+ * paused game stands in) and comes back on resume. Stopping it ends its loop as quitting the BlueWake app
+ * does (the memory card is written, the renderer and audio shut down); that happens once PadHub's own call
+ * returns into the loop. It does not start again in the same process: PadHub restarts for that
+ * (canStartAgain). If PadHub closes while the game runs, an exit handler writes the memory card first. NSO
+ * GameCube controllers reach the game as GameCube pads (each controller's player is its port), and their
+ * HOME button brings up PadHub's menu. */
 @interface BlueWakeHubGame : NSObject <PadHubGame, NSOGCManagerDelegate>
 @end
 
@@ -63,6 +70,8 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
     UIView *_pausedPicture;
     NSTimer *_guideWatchTimer;
     BOOL _started;
+    BOOL _stopping;  // the loop is asked to end
+    BOOL _ended;     // the loop has ended: the game cannot start again before PadHub restarts
     BOOL _inFront;
     uint32_t _homeDown;  // players whose NSO controller has HOME down
 }
@@ -94,7 +103,11 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
 }
 
 - (BOOL)canStop {
-    return NO;
+    return YES;
+}
+
+- (BOOL)canStartAgain {
+    return !_ended && !_stopping;
 }
 
 - (void)resume {
@@ -133,6 +146,11 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
 
 - (void)stop {
     [self suspend];
+    if (!_started || _stopping || _ended)
+        return;
+    NSLog(@"[padhub] Wind Waker asked to end");
+    _stopping = YES;
+    gx_aurora::g_should_quit = true;
 }
 
 - (void)importDiscAtURL:(NSURL *)url {
@@ -167,10 +185,14 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
     char name[] = "BlueWake";
     char *argv[] = {name, NULL};
     const int status = bluewake_padhub_main(1, argv);
-    // Only a bounded run or a fatal stop gets here; the game cannot start again in this process.
+    // PadHub's stop, a bounded run or a fatal stop: the game cannot start again in this process.
     NSLog(@"[padhub] Wind Waker ended status=%d", status);
+    [_guideWatchTimer invalidate];
+    _guideWatchTimer = nil;
+    _ended = YES;
     _inFront = NO;
-    _exitToHub();
+    if (!_stopping)
+        _exitToHub();
 }
 
 - (UIWindow *)gameWindow {

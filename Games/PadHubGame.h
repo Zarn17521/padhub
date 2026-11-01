@@ -30,6 +30,22 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)stop;
 
 @optional
+/* Like stop, but reports whether the game actually ended and freed its memory
+ * in-process. A game that tears itself down (a Switch game) implements this;
+ * GameHost prefers it and, when it returns NO, falls back to restarting the
+ * app. A game without it is stopped with stop and assumed to have succeeded. */
+- (BOOL)stopGame NS_SWIFT_NAME(stopGame());
+
+/* Like stopGame, for a game that can only end once PadHub's own call has
+ * returned (Wind Waker, whose loop owns the main thread): completion runs on
+ * the main queue once it has ended, with NO when it could not. GameHost waits
+ * for it before starting another game. */
+- (void)stopGameWithCompletion:(void (^)(BOOL stopped))completion NS_SWIFT_NAME(stopGame(completion:));
+
+/* NO once the game has ended and cannot start again before PadHub restarts.
+ * YES when absent. */
+@property(nonatomic, readonly) BOOL canStartAgain;
+
 /* Imports a disc image the player put in PadHub's Import folder, as the
  * game's own import does. The game is in front. */
 - (void)importDiscAtURL:(NSURL *)url;

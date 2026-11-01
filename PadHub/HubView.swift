@@ -40,7 +40,11 @@ struct HubView: View {
         hints(layout)
       }
 
-      if let replacing, let paused = host.needsRestart(toOpen: replacing) ? host.endlessGame : host.current {
+      // The game that stands in the way: the one paused (closed first), the one that cannot end,
+      // or the next one itself when it cannot start again before PadHub restarts.
+      if let replacing,
+        let paused = host.needsRestart(toOpen: replacing) ? host.endlessGame ?? replacing : host.current
+      {
         ReplaceGamePrompt(paused: paused, next: replacing, restart: host.needsRestart(toOpen: replacing)) {
           self.replacing = nil
           launch(replacing, replacingPaused: true)
@@ -392,9 +396,11 @@ private struct ReplaceGamePrompt: View {
           .font(.title2.weight(.bold))
           .foregroundStyle(.white)
         Text(
-          restart
-            ? "\(paused.title) keeps running until PadHub closes. Open PadHub again and \(next.title) starts. Progress you have not saved in the game is lost."
-            : "\(next.title) starts once it is closed. Progress you have not saved in the game is lost.")
+          !restart
+            ? "\(next.title) starts once it is closed. Progress you have not saved in the game is lost."
+            : paused.id == next.id
+              ? "\(next.title) starts once each time PadHub opens. PadHub closes; open it again and \(next.title) starts."
+              : "\(paused.title) keeps running until PadHub closes. Open PadHub again and \(next.title) starts. Progress you have not saved in the game is lost.")
           .font(.subheadline)
           .foregroundStyle(.white.opacity(0.75))
           .multilineTextAlignment(.center)

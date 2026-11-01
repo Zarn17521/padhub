@@ -91,16 +91,16 @@ extension Game {
     Game(
       id: "windwaker", title: "The Legend of Zelda: The Wind Waker", platform: .gameCube,
       scheme: "bluewake", colors: ["#0277BD", "#26A69A", "#FFCA28"], symbol: "sailboat.fill",
-      embedded: Embedded(framework: "BlueWakeGame", module: "gGZLE01_recomp.dylib", keepsRunning: true),
+      embedded: Embedded(framework: "BlueWakeGame", module: "gGZLE01_recomp.dylib"),
       artID: "GZLE01"),
     Game(
       id: "wonder", title: "Super Mario Bros. Wonder", platform: .nintendoSwitch,
       scheme: "nxnative-010015100b514000", colors: ["#7B1FA2", "#FDD835", "#43A047"],
-      symbol: "sparkles", embedded: Embedded(framework: "Switch010015100B514000", keepsRunning: true), artID: "AQMXA"),
+      symbol: "sparkles", embedded: Embedded(framework: "Switch010015100B514000"), artID: "AQMXA"),
     Game(
       id: "acnh", title: "Animal Crossing: New Horizons", platform: .nintendoSwitch,
       scheme: "nxnative-01006f8002326000", colors: ["#2E7D32", "#FFEE58", "#4FC3F7"],
-      symbol: "leaf.fill", embedded: Embedded(framework: "Switch01006F8002326000", keepsRunning: true), artID: "ACBAA"),
+      symbol: "leaf.fill", embedded: Embedded(framework: "Switch01006F8002326000"), artID: "ACBAA"),
   ]
 
   static let customPalettes: [[String]] = [

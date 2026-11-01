@@ -13,6 +13,8 @@ import UIKit
 final class GameHost: ObservableObject {
   /// The game in front, or paused behind the menu.
   @Published private(set) var current: Game?
+  /// A game on its way out, until it has ended.
+  @Published private(set) var ending: Game?
   /// A game that cannot end, paused while another one runs.
   @Published private(set) var parked: Game?
   @Published private(set) var inFront = false
@@ -55,7 +57,13 @@ final class GameHost: ObservableObject {
         parked = current
       } else {
         Log.write("stop \(current.id) to start \(game.id)")
-        loaded[current.id]?.stop()
+        // Once it has ended (a game that cannot stop in-process restarts the app, opening
+        // `game` next), `game` starts.
+        end(current, fallbackOpen: game) { [weak self] in
+          if self?.current?.id == current.id { self?.current = nil }
+          self?.open(game)
+        }
+        return
       }
       self.current = nil
     }
@@ -189,8 +197,10 @@ final class GameHost: ObservableObject {
     current.map { $0.id != unstoppable?.id } ?? false
   }
 
-  /// A game that cannot end has run, and `game` is another one of that kind.
+  /// A game that cannot end has run, and `game` is another one of that kind; or
+  /// `game` has ended and cannot start again in this launch (Wind Waker).
   func needsRestart(toOpen game: Game) -> Bool {
+    if loaded[game.id]?.canStartAgain == false { return true }
     guard let unstoppable, unstoppable.id != game.id else { return false }
     return game.keepsRunning
   }
@@ -226,8 +236,39 @@ final class GameHost: ObservableObject {
   func closeCurrent() {
     guard !inFront, let current, current.id != unstoppable?.id else { return }
     Log.write("close \(current.id)")
-    loaded[current.id]?.stop()
-    self.current = nil
+    end(current, fallbackOpen: nil) { [weak self] in
+      if self?.current?.id == current.id { self?.current = nil }
+    }
+  }
+
+  /// Stops a game, freeing its memory, then runs `then`. A game that stops in-process (a Switch
+  /// game) reports whether it succeeded through stopGame; when it cannot, PadHub restarts the app
+  /// (opening `fallbackOpen` next, or the menu). A game whose loop ends only once this call has
+  /// returned (Wind Waker) reports it later, and `then` waits for it. A game with only the plain
+  /// stop is assumed to have ended.
+  private func end(_ game: Game, fallbackOpen: Game?, then: @escaping () -> Void) {
+    guard let instance = loaded[game.id] else { return then() }
+    let ended: (Bool) -> Void = { [weak self] stopped in
+      guard stopped else {
+        Log.write("\(game.id) could not stop in-process; restarting to recover")
+        self?.restart(toOpen: fallbackOpen)
+        return
+      }
+      Log.write("\(game.id) ended")
+      then()
+    }
+    if instance.responds(to: #selector(PadHubGame.stopGame(completion:))) {
+      ending = game
+      instance.stopGame?(completion: { [weak self] stopped in
+        self?.ending = nil
+        ended(stopped)
+      })
+    } else if instance.responds(to: Selector(("stopGame"))) {  // stopGame(), not stopGame(completion:)
+      ended(instance.stopGame?() == true)
+    } else {
+      instance.stop()
+      then()
+    }
   }
 
   // MARK: A game's own settings

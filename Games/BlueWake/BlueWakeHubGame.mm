@@ -72,6 +72,7 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
     BOOL _started;
     BOOL _stopping;  // the loop is asked to end
     BOOL _ended;     // the loop has ended: the game cannot start again before PadHub restarts
+    void (^_stopCompletion)(BOOL stopped);
     BOOL _inFront;
     uint32_t _homeDown;  // players whose NSO controller has HOME down
 }
@@ -145,8 +146,22 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
 }
 
 - (void)stop {
+    [self stopGameWithCompletion:^(BOOL stopped) {
+        (void)stopped;
+    }];
+}
+
+// The loop ends once PadHub's call has returned into it; completion runs after its teardown.
+- (void)stopGameWithCompletion:(void (^)(BOOL stopped))completion {
     [self suspend];
-    if (!_started || _stopping || _ended)
+    if (!_started || _ended) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion(YES);
+        });
+        return;
+    }
+    _stopCompletion = [completion copy];
+    if (_stopping)
         return;
     NSLog(@"[padhub] Wind Waker asked to end");
     _stopping = YES;
@@ -191,8 +206,16 @@ static bool SDLCALL bw_guide_watch(void *userdata, SDL_Event *event) {
     _guideWatchTimer = nil;
     _ended = YES;
     _inFront = NO;
-    if (!_stopping)
+    if (_stopCompletion != nil) {
+        // Outside the game's frames, once this timer callout has returned.
+        void (^completion)(BOOL) = _stopCompletion;
+        _stopCompletion = nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion(YES);
+        });
+    } else if (!_stopping) {
         _exitToHub();
+    }
 }
 
 - (UIWindow *)gameWindow {

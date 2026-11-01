@@ -57,12 +57,35 @@ struct PadHubApp: App {
 
   /// `-padhubSelfTest`: opens each built-in game, goes back to the menu, and
   /// switches between them, so a Mac can check that the cores share the
-  /// process (PadHub.log and the games' logs tell how it went).
+  /// process (PadHub.log and the games' logs tell how it went). It then cycles
+  /// the games that stop in-process (the Switch games): it starts and quits
+  /// each from the menu, freeing its memory, and starts one of them again, so
+  /// a device run checks stop and restart from the logs. Games that keep
+  /// running (Wind Waker) are left out of that round: quitting one restarts
+  /// the app, which would cut the test short.
   private func runSelfTest() {
-    let built = library.games.filter { $0.embedded != nil && library.isInstalled($0) }
+    // `-padhubSelfTestGames wonder,sunpad` keeps the test to those games, in that order.
+    let arguments = ProcessInfo.processInfo.arguments
+    let only = arguments.firstIndex(of: "-padhubSelfTestGames").flatMap {
+      $0 + 1 < arguments.count ? arguments[$0 + 1].split(separator: ",").map(String.init) : nil
+    }
+    let installed = library.games.filter { $0.embedded != nil && library.isInstalled($0) }
+    let built = only.map { ids in ids.compactMap { id in installed.first { $0.id == id } } } ?? installed
+    let stoppable = built.filter { !$0.keepsRunning }
     var steps: [(TimeInterval, () -> Void)] = []
     for game in built + built.prefix(1) {
       steps.append((2, { host.open(game) }))
+      steps.append((30, { host.returnToMenu() }))
+    }
+    // Then: start each stoppable game and quit it (which stops it and frees its memory), and
+    // finally start the first one again, to prove a game restarts after it has been stopped.
+    for game in stoppable {
+      steps.append((2, { host.open(game) }))
+      steps.append((30, { host.showGameMenu() }))
+      steps.append((1, { host.quitFromGameMenu() }))
+    }
+    if let again = stoppable.first {
+      steps.append((2, { host.open(again) }))
       steps.append((30, { host.returnToMenu() }))
     }
     var delay: TimeInterval = 0

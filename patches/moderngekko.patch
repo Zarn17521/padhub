@@ -1,0 +1,69 @@
+diff --git a/include/moderngekko/game.hpp b/include/moderngekko/game.hpp
+index 3f39485..52f47ce 100644
+--- a/include/moderngekko/game.hpp
++++ b/include/moderngekko/game.hpp
+@@ -36,7 +36,16 @@ struct GameInspectResult
+   explicit operator bool() const { return metadata.has_value(); }
+ };
+ 
+-GameInspectResult InspectGame(const std::filesystem::path& root);
++struct GameInspectOptions
++{
++  // Hash every file under files/ into assets_sha256. Tools that verify or
++  // compare a whole game need it; booting does not, and on a phone hashing a
++  // disc's files takes seconds at every launch.
++  bool hash_assets = true;
++};
++
++GameInspectResult InspectGame(const std::filesystem::path& root,
++                              GameInspectOptions options = {});
+ std::optional<std::string> HashFileSha256(const std::filesystem::path& path);
+ std::optional<std::string> HashDirectorySha256(const std::filesystem::path& root);
+ }  // namespace moderngekko
+diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
+index 5bde452..6de8293 100644
+--- a/src/runtime/dolphin_runtime.cpp
++++ b/src/runtime/dolphin_runtime.cpp
+@@ -343,7 +343,9 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+         RuntimeError{RuntimeErrorCode::AlreadyActive,
+                      "only one ModernGekko runtime may be active per process"}};
+ 
+-  GameInspectResult inspected = InspectGame(config.game_root);
++  // Booting needs the game's identity, not a hash of every file on its disc.
++  GameInspectResult inspected =
++      InspectGame(config.game_root, {.hash_assets = false});
+   if (!inspected)
+     return {{}, RuntimeError{RuntimeErrorCode::InvalidGame, inspected.error}};
+ 
+diff --git a/src/runtime/game.cpp b/src/runtime/game.cpp
+index 95b5fa6..5e8b011 100644
+--- a/src/runtime/game.cpp
++++ b/src/runtime/game.cpp
+@@ -141,7 +141,8 @@ std::optional<std::string> HashDirectorySha256(const std::filesystem::path& root
+   return Sha256(std::move(manifest));
+ }
+ 
+-GameInspectResult InspectGame(const std::filesystem::path& input_root)
++GameInspectResult InspectGame(const std::filesystem::path& input_root,
++                              GameInspectOptions options)
+ {
+   std::error_code ec;
+   const auto root = std::filesystem::weakly_canonical(input_root, ec);
+@@ -216,10 +217,13 @@ GameInspectResult InspectGame(const std::filesystem::path& input_root)
+       return {{}, "can't hash files/_Main.rel"};
+     metadata.rel_sha256 = *rel_hash;
+   }
+-  const auto assets_hash = HashDirectorySha256(root / "files");
+-  if (!assets_hash)
+-    return {{}, "can't hash the files directory"};
+-  metadata.assets_sha256 = *assets_hash;
++  if (options.hash_assets)
++  {
++    const auto assets_hash = HashDirectorySha256(root / "files");
++    if (!assets_hash)
++      return {{}, "can't hash the files directory"};
++    metadata.assets_sha256 = *assets_hash;
++  }
+   return {std::move(metadata), {}};
+ }
+ }  // namespace moderngekko

@@ -141,6 +141,25 @@ or open `PadHub.xcodeproj`, set your team and `PADHUB_BUNDLE_ID`, and run the
 Release configuration on a device (the emulators need the optimized build).
 iOS 18 or later.
 
+SunPad and MeleePad both run on ModernGekko, which they check out in
+`ref/ModernGekko`. `patches/moderngekko.patch` keeps the runtime from hashing
+every file of the disc (over a gigabyte) each time a game starts. Their build
+scripts refuse a ModernGekko checkout with local changes. So apply the patch
+once their core libraries are built, then rebuild only the runtime library
+(and merge SunPad's archive again):
+
+```sh
+git -C sunpad/ref/ModernGekko apply ../../../padhub/patches/moderngekko.patch
+ninja -C sunpad/ref/ModernGekko/build-ios-iphoneos-public libmoderngekko.a
+SUNPAD_DEVICE_MODULE_PATH="$PWD/sunpad/build/ios-module-device/gGMSE01_recomp.dylib" \
+  sunpad/scripts/ios-provision-device.sh
+git -C meleepad/ref/ModernGekko apply ../../../padhub/patches/moderngekko.patch
+ninja -C meleepad/ref/ModernGekko/build-ios-iphoneos-meleepad-static \
+  libmoderngekko.a libmoderngekko_netplay_session.a
+```
+
+Reverse the patch (`git apply -R`) before running their build scripts again.
+
 ### Importing a disc
 
 Put the disc image (`.iso`) in PadHub's Import folder: the Files app (On My

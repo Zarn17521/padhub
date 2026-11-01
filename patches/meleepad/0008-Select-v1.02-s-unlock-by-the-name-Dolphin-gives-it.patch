@@ -1,0 +1,109 @@
+From 9c5a0d0f7c070704a4dc725fdfa956e9a4e90cf1 Mon Sep 17 00:00:00 2001
+From: pookee <13053375+pookee@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 13:15:09 +0100
+Subject: [PATCH 8/8] Select v1.02's unlock by the name Dolphin gives it
+
+v1.02's unlock is the Gecko code "$Unlock All Characters and Stages
+[Datel]" in its GameINI, and the previous change selected it by that whole
+line. Dolphin names a Gecko code by its title without the author's bracket
+and matches [Gecko_Enabled] lines against that name, so the selection
+matched no code and v1.02 still unlocked nothing. It is now "$Unlock All
+Characters and Stages". The test reads the bundled codes as Dolphin names
+them, so it fails on the old name.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ apple/ios/MeleePadCoreHost.mm | 14 ++++++-------
+ tests/test-offline-cheats.sh  | 37 +++++++++++++++++++++++++----------
+ 2 files changed, 34 insertions(+), 17 deletions(-)
+
+diff --git a/apple/ios/MeleePadCoreHost.mm b/apple/ios/MeleePadCoreHost.mm
+index 3ec17c4..ea2b93c 100644
+--- a/apple/ios/MeleePadCoreHost.mm
++++ b/apple/ios/MeleePadCoreHost.mm
+@@ -139,14 +139,14 @@ static void MeleePadRuntimeLogCallback(
+         port + 1, MeleePadPortPipeName(port)];
+ }
+ 
+-/* Dolphin's bundled code that unlocks every character and stage, as each
+- * revision's GameINI has it: v1.00's is an Action Replay code, "$All
+- * Characters and Stages"; v1.02's exists only as a Gecko code, "$Unlock All
+- * Characters and Stages [Datel]" (both write the save's unlock flags, at each
+- * revision's address). Selecting v1.00's code for a v1.02 game selected
+- * nothing. */
++/* The selection of Dolphin's bundled code that unlocks every character and
++ * stage, in each revision's GameINI: v1.00's is the Action Replay code "$All
++ * Characters and Stages"; v1.02's exists only as the Gecko code "$Unlock All
++ * Characters and Stages [Datel]", which Dolphin names without its author's
++ * bracket. Both write the save's unlock flags, at each revision's address.
++ * Selecting v1.00's code for a v1.02 game selected nothing. */
+ static NSString *const MeleePadUnlockAllCodeNameR0 = @"$All Characters and Stages";
+-static NSString *const MeleePadUnlockAllCodeNameR2 = @"$Unlock All Characters and Stages [Datel]";
++static NSString *const MeleePadUnlockAllCodeNameR2 = @"$Unlock All Characters and Stages";
+ 
+ /* Maintain only MeleePad's named activation in Dolphin's local GameINI. The
+  * bundled code definition remains Dolphin-owned; this file merely selects it,
+diff --git a/tests/test-offline-cheats.sh b/tests/test-offline-cheats.sh
+index 3909bdd..3029646 100755
+--- a/tests/test-offline-cheats.sh
++++ b/tests/test-offline-cheats.sh
+@@ -21,7 +21,7 @@ done
+ grep -Fq 'boolForKey:@"MeleePadUnlockAllCharactersAndStages"' "$SETTINGS"
+ grep -Fq '@"UnlockAllCharactersAndStages"' "$APP_DELEGATE"
+ grep -Fq 'MeleePadUnlockAllCodeNameR0 = @"$All Characters and Stages"' "$HOST"
+-grep -Fq 'MeleePadUnlockAllCodeNameR2 = @"$Unlock All Characters and Stages [Datel]"' "$HOST"
++grep -Fq 'MeleePadUnlockAllCodeNameR2 = @"$Unlock All Characters and Stages"' "$HOST"
+ grep -Fq 'revision == 2 ? @"[Gecko_Enabled]" : @"[ActionReplay_Enabled]"' "$HOST"
+ grep -Fq 'revision == 2 ? @"GALE01r2.ini" : @"GALE01r0.ini"' "$HOST"
+ grep -Fq '_allowOfflineCheats->store(false' "$HOST"
+@@ -29,21 +29,38 @@ grep -Fq 'MeleePadConfigureOfflineCheats(runtimeUserDirectory, NO' "$HOST"
+ grep -Fq 'Config::SetBase(Config::MAIN_ENABLE_CHEATS, false)' "$HOST"
+ grep -Fq 'Config::SetBase(Config::MAIN_ENABLE_CHEATS' "$HOST"
+ 
+-python3 - "$GAME_INI" "$GAME_INI_R2" <<'PY'
++python3 - "$HOST" "$GAME_INI" "$GAME_INI_R2" <<'PY'
+ from pathlib import Path
++import re
+ import sys
+ 
+-# The code each revision selects, in that revision's bundled GameINI section:
+-# v1.00's Action Replay code, v1.02's Gecko code.
+-for path, section_name, required in (
+-    (sys.argv[1], '[ActionReplay]', ('$All Characters and Stages', '04459F58 FFFFFFFF', '04459F60 FFFFFFFF')),
+-    (sys.argv[2], '[Gecko]', ('$Unlock All Characters and Stages [Datel]', '0445BF28 FFFFFFFF', '0445BF2C FFFFFFFF')),
++host = Path(sys.argv[1]).read_text()
++
++# Each revision's selection must name its unlock code as Dolphin names the
++# codes in that revision's bundled GameINI: an Action Replay code by its whole
++# title, a Gecko code by its title before the author's bracket.
++for constant, path, section_name, writes in (
++    ('MeleePadUnlockAllCodeNameR0', sys.argv[2], '[ActionReplay]', ('04459F58 FFFFFFFF', '04459F60 FFFFFFFF')),
++    ('MeleePadUnlockAllCodeNameR2', sys.argv[3], '[Gecko]', ('0445BF28 FFFFFFFF', '0445BF2C FFFFFFFF')),
+ ):
++    selection = re.search(constant + r' = @"([^"]*)"', host).group(1)
+     text = Path(path).read_text()
+     section = text.split('\n' + section_name + '\n', 1)[1].split('\n[', 1)[0]
+-    for line in required:
+-        if line not in section:
+-            raise SystemExit(f'missing bundled unlock contract in {Path(path).name}: {line}')
++    codes = {}
++    for line in section.splitlines():
++        line = line.strip()
++        if line.startswith(('$', '+$')):
++            title = line.lstrip('+')[1:]
++            name = title.split('[', 1)[0].strip() if section_name == '[Gecko]' else title
++            code = codes.setdefault(name, [])
++        elif codes and line and not line.startswith(('*', '#')):
++            code.append(line)
++    selected = selection[1:]
++    if selected not in codes:
++        raise SystemExit(f'{Path(path).name} has no code Dolphin names {selected!r}')
++    for write in writes:
++        if write not in codes[selected]:
++            raise SystemExit(f'missing bundled unlock write in {Path(path).name}: {write}')
+ PY
+ 
+ echo "Offline cheat menu, persistence warning, code selection, and netplay gate passed"
+-- 
+2.54.0 (Apple Git-157)
+

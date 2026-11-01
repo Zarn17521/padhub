@@ -1,7 +1,7 @@
 From 631367c3a17f136b5caf380989d9f619301d9998 Mon Sep 17 00:00:00 2001
 From: pookee <13053375+pookee@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 13:02:55 +0100
-Subject: [PATCH 6/7] Unlock All Characters & Stages works on v1.02
+Subject: [PATCH 6/8] Unlock All Characters & Stages works on v1.02
 
 The offline cheat selected Dolphin's "$All Characters and Stages", which only
 v1.00's GameINI has, as an Action Replay code. v1.02's GameINI has the unlock

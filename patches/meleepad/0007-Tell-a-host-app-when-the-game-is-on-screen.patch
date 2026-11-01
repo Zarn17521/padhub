@@ -1,7 +1,7 @@
 From df233f39da2158e525dbd5520626dda8724ca568 Mon Sep 17 00:00:00 2001
 From: pookee <13053375+pookee@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 13:02:55 +0100
-Subject: [PATCH 7/7] Tell a host app when the game is on screen
+Subject: [PATCH 7/8] Tell a host app when the game is on screen
 
 startupHandler is called once per start, on the main thread, when the game
 shows its first frame or needs the player instead (its home screen, an error,

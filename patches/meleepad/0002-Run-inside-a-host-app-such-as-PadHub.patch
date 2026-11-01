@@ -1,7 +1,7 @@
 From 3e3ad3abdd95548fd037fdc81e9a0ae80728c10d Mon Sep 17 00:00:00 2001
 From: pookee <13053375+pookee@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 02:52:32 +0100
-Subject: [PATCH 2/7] Run inside a host app such as PadHub
+Subject: [PATCH 2/8] Run inside a host app such as PadHub
 
 - The NSO bridge takes the controllers back each time it starts,
   catching up with controllers that came and went while a host's menu

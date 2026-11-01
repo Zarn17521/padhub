@@ -1,7 +1,7 @@
 From a9cb5d905d2f72bf7b94283aa09e77fe70f55008 Mon Sep 17 00:00:00 2001
 From: pookee <13053375+pookee@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 09:25:49 +0100
-Subject: [PATCH 4/7] A host app can start Melee without the home screen
+Subject: [PATCH 4/8] A host app can start Melee without the home screen
 
 PadHub's menu is already a home screen, so inside it Melee starts at once
 (playsWithoutHome), as Play on the home screen does. The home still shows

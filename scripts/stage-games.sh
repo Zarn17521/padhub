@@ -48,3 +48,27 @@ fi
 
 stage gGMSE01_recomp.dylib "$sunpad/build/ios-module-device/gGMSE01_recomp.dylib"
 stage gGALE01r2_recomp.dylib /tmp/meleepad-module-ios-device-r2/gGALE01_recomp.dylib
+
+# Wind Waker: BlueWake's game, built by its own builder (the module from your
+# disc) and scripts/build-bluewake.sh (the framework). Its framework is not an
+# Xcode target, so it is copied and signed here too, with the files BlueWake
+# reads at the top of the app: its optimization list and pipeline cache seed.
+bluewake="$SRCROOT/../bluewake"
+stage gGZLE01_recomp.dylib "$bluewake/build/device/composite-ios/gGZLE01_recomp.dylib"
+framework="$app/Frameworks/BlueWakeGame.framework"
+rm -rf "$framework"
+for source in "$SRCROOT/Modules/BlueWakeGame.framework" "$bluewake/build/padhub/BlueWakeGame.framework"; do
+  if [ -d "$source" ]; then
+    cp -R "$source" "$framework"
+    if [ "${CODE_SIGNING_ALLOWED:-YES}" = "YES" ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+      codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --timestamp=none "$framework"
+    fi
+    echo "Staged BlueWakeGame.framework from $source"
+    break
+  fi
+done
+[ -d "$framework" ] || echo "warning: BlueWakeGame.framework is missing; run scripts/build-bluewake.sh to play Wind Waker"
+for file in "$bluewake/build/device/app/BlueWake.app/ModuleOptimizations" \
+    "$bluewake/apple/ios/resources/initial_pipeline_cache.db"; do
+  if [ -f "$file" ]; then cp -f "$file" "$app/"; else rm -f "$app/$(basename "$file")"; fi
+done

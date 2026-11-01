@@ -89,6 +89,11 @@ extension Game {
       colors: ["#C62828", "#37474F", "#FF7043"], symbol: "flame.fill",
       embedded: Embedded(framework: "MeleePadGame", module: "gGALE01r2_recomp.dylib"), artID: "GALE01"),
     Game(
+      id: "windwaker", title: "The Legend of Zelda: The Wind Waker", platform: .gameCube,
+      scheme: "bluewake", colors: ["#0277BD", "#26A69A", "#FFCA28"], symbol: "sailboat.fill",
+      embedded: Embedded(framework: "BlueWakeGame", module: "gGZLE01_recomp.dylib", keepsRunning: true),
+      artID: "GZLE01"),
+    Game(
       id: "wonder", title: "Super Mario Bros. Wonder", platform: .nintendoSwitch,
       scheme: "nxnative-010015100b514000", colors: ["#7B1FA2", "#FDD835", "#43A047"],
       symbol: "sparkles", embedded: Embedded(framework: "Switch010015100B514000", keepsRunning: true), artID: "AQMXA"),

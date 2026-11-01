@@ -1,0 +1,2 @@
+_OBJC_CLASS_$_BlueWakeHubGame
+_OBJC_METACLASS_$_BlueWakeHubGame

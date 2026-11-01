@@ -2,8 +2,9 @@
 
 One app for the games you made from your own discs and cartridges on iPhone
 and iPad: Super Mario Sunshine (SunPad), Super Smash Bros. Melee (MeleePad),
-and the Switch games packed with nxnative (Super Mario Bros. Wonder, Animal
-Crossing: New Horizons) all run inside it.
+The Legend of Zelda: The Wind Waker (BlueWake), and the Switch games packed
+with nxnative (Super Mario Bros. Wonder, Animal Crossing: New Horizons) all
+run inside it.
 
 - A carousel of the games' box art over a background that takes the selected
   game's colors, with a launch animation. The box art comes from
@@ -141,3 +142,22 @@ from its own menu.
 - The Simulator works too, once each game's `scripts/ios-build-core.sh` has
   built its Simulator core and module: the games then read their data from
   the Mac's disk.
+
+## Wind Waker
+
+BlueWake's builder makes the game module from your disc in the sibling
+checkout (`scripts/builder/build.sh DISC.iso --out build/device`), then
+`scripts/build-bluewake.sh com.your.bundle.id` builds `BlueWakeGame.framework`
+from the same sources (`Games/BlueWake/BlueWakeGame.cmake`, included by a
+small local change to BlueWake's `apple/ios/CMakeLists.txt`, with
+`BLUEWAKE_PADHUB` in its entry and menu). PadHub's build phase copies the
+framework, the module, `ModuleOptimizations` and the pipeline cache seed into
+the app. The disc goes in `Documents/BlueWake/GZLE01.iso` (or the Import
+folder); BlueWake prepares it the first time the game starts.
+
+BlueWake's loop owns the main thread once it starts, so PadHub starts it from
+a run-loop timer and its own screens run inside that loop. NSO GameCube
+controllers reach the game as GameCube pads, by player. Like a Switch game it
+cannot end before PadHub does yet: it waits, paused, while a GameCube game
+runs. The module and any build containing it stay on your devices, as
+BlueWake's rules say.

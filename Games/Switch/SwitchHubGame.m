@@ -9,6 +9,7 @@ void dm_ios_set_data_dir(NSString *dir);
 int dm_ios_boot_env(void);
 UIViewController *front_ios_root(void);
 void front_ios_focus_event(int ev);
+void front_ios_set_host_overlay(UIView *view);
 void dm_gamepad_set_home_handler(void (^handler)(void));
 
 /* A Switch game built with nxnative, inside PadHub. The framework carries the game's code and tables;
@@ -46,6 +47,7 @@ void dm_gamepad_set_home_handler(void (^handler)(void));
 
         // The touch controls have no menu: a small button brings back PadHub's.
         _homeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _homeButton.frame = CGRectMake(0, 0, 34, 34);
         [_homeButton setImage:[UIImage systemImageNamed:@"house.fill"] forState:UIControlStateNormal];
         _homeButton.tintColor = UIColor.whiteColor;
         _homeButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
@@ -56,6 +58,7 @@ void dm_gamepad_set_home_handler(void (^handler)(void));
             (void)action;
             exitToHub();
         }] forControlEvents:UIControlEventTouchUpInside];
+        front_ios_set_host_overlay(_homeButton);  // the root view controller keeps it on top
 
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         [center addObserver:self selector:@selector(sceneWillDeactivate:)
@@ -80,19 +83,6 @@ void dm_gamepad_set_home_handler(void (^handler)(void));
 
 - (void)resume {
     [_viewController loadViewIfNeeded];
-    UIView *view = _viewController.view;
-    if (_homeButton.superview == nil) {
-        _homeButton.translatesAutoresizingMaskIntoConstraints = NO;
-        [view addSubview:_homeButton];
-        [NSLayoutConstraint activateConstraints:@[
-            [_homeButton.widthAnchor constraintEqualToConstant:34],
-            [_homeButton.heightAnchor constraintEqualToConstant:34],
-            [_homeButton.topAnchor constraintEqualToAnchor:view.safeAreaLayoutGuide.topAnchor constant:6],
-            [_homeButton.trailingAnchor constraintEqualToAnchor:view.safeAreaLayoutGuide.trailingAnchor
-                                                       constant:-6],
-        ]];
-    }
-    [view bringSubviewToFront:_homeButton];
     _inFront = YES;
     if (_behindMenu) {
         _behindMenu = NO;

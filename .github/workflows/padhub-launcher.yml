@@ -24,8 +24,10 @@ jobs:
 
       - name: Generate launcher-only Xcode project
         run: |
-          python3 -m pip install --user PyYAML
-          python3 - <<'PY'
+          python3 -m venv .workflow-venv
+          source .workflow-venv/bin/activate
+          python -m pip install --upgrade pip PyYAML
+          python - <<'PY'
           import yaml
           from pathlib import Path
 

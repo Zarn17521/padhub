@@ -31,6 +31,7 @@ jobs:
 
           spec = yaml.safe_load(Path("project.yml").read_text())
           spec.pop("targetTemplates", None)
+          spec["settings"]["base"]["NSOGCKIT_ROOT"] = "$(SRCROOT)/nso-gamecube-ios/Sources/NSOGCKit"
           targets = spec["targets"]
           for name in list(targets):
               if name not in ("NSOGCKit", "PadHub"):
@@ -47,6 +48,14 @@ jobs:
               and not (isinstance(s, dict) and str(s.get("path", "")).startswith("../"))
           ]
           app.pop("postBuildScripts", None)
+          nso = targets["NSOGCKit"]
+          nso["sources"] = [
+              s.replace("../nso-gamecube-ios/", "nso-gamecube-ios/")
+              if isinstance(s, str) else
+              ({**s, "path": s["path"].replace("../nso-gamecube-ios/", "nso-gamecube-ios/")}
+               if isinstance(s, dict) and "path" in s else s)
+              for s in nso.get("sources", [])
+          ]
           Path("project-launcher.yml").write_text(
               yaml.safe_dump(spec, sort_keys=False, allow_unicode=True)
           )

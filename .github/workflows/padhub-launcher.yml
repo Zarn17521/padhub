@@ -1,0 +1,84 @@
+name: PadHub Launcher IPA (no game cores)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout PadHub
+        uses: actions/checkout@v4
+
+      - name: Checkout NSOGCKit
+        uses: actions/checkout@v4
+        with:
+          repository: pookee/nso-gamecube-ios
+          path: nso-gamecube-ios
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate launcher-only Xcode project
+        run: |
+          python3 -m pip install --user PyYAML
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+
+          spec = yaml.safe_load(Path("project.yml").read_text())
+          spec.pop("targetTemplates", None)
+          targets = spec["targets"]
+          for name in list(targets):
+              if name not in ("NSOGCKit", "PadHub"):
+                  del targets[name]
+
+          app = targets["PadHub"]
+          app["dependencies"] = [
+              d for d in app.get("dependencies", [])
+              if isinstance(d, dict) and d.get("target") == "NSOGCKit"
+          ]
+          app["sources"] = [
+              s for s in app.get("sources", [])
+              if not (isinstance(s, str) and s.startswith("../"))
+              and not (isinstance(s, dict) and str(s.get("path", "")).startswith("../"))
+          ]
+          app.pop("postBuildScripts", None)
+          Path("project-launcher.yml").write_text(
+              yaml.safe_dump(spec, sort_keys=False, allow_unicode=True)
+          )
+          PY
+          xcodegen generate --spec project-launcher.yml
+
+      - name: Build unsigned iOS app
+        run: |
+          xcodebuild \
+            -project PadHub.xcodeproj \
+            -scheme PadHub \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            PADHUB_BUNDLE_ID=org.padhub.launcher \
+            PADHUB_ENTITLEMENTS= \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package IPA
+        run: |
+          APP="build/DerivedData/Build/Products/Release-iphoneos/PadHub.app"
+          test -d "$APP"
+          mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          cd build
+          zip -qry PadHub-Launcher-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: PadHub-Launcher-unsigned-IPA
+          path: build/PadHub-Launcher-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
